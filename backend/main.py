@@ -351,24 +351,29 @@ def seed_experts():
 
 seed_experts()
 
-# ── News: seed sources & initial fetch ───────────────────────────────────────
-try:
-    from api.news import seed_sources_and_initial_fetch
-    seed_sources_and_initial_fetch()
-except Exception as _e:
-    print(f"[Startup] News seed skipped: {_e}")
-
-# ── Indian Market: sync NSE companies on startup ──────────────────────────────
-try:
-    from api.market import init_nse_companies
-    init_nse_companies()
-except Exception as _e:
-    print(f"[Startup] NSE init skipped: {_e}")
-
-# ── Background news auto-refresh every 30 minutes ────────────────────────────
+# ── Background startup tasks (non-blocking) ───────────────────────────────────
 import threading, time as _time
 
-def _news_refresh_loop():
+def _background_startup():
+    """Run heavy startup tasks in background so the server starts immediately."""
+    _time.sleep(3)  # Let the server fully start first
+
+    # News seed
+    try:
+        from api.news import seed_sources_and_initial_fetch
+        seed_sources_and_initial_fetch()
+        print("[Startup] News sources seeded")
+    except Exception as _e:
+        print(f"[Startup] News seed skipped: {_e}")
+
+    # NSE companies init
+    try:
+        from api.market import init_nse_companies
+        init_nse_companies()
+    except Exception as _e:
+        print(f"[Startup] NSE init skipped: {_e}")
+
+    # Auto-refresh news every 30 minutes
     while True:
         _time.sleep(30 * 60)
         try:
@@ -380,4 +385,5 @@ def _news_refresh_loop():
         except Exception as _e:
             print(f"[AutoRefresh] Error: {_e}")
 
-threading.Thread(target=_news_refresh_loop, daemon=True).start()
+threading.Thread(target=_background_startup, daemon=True).start()
+print("✅ RiskIQ API started — background tasks running")
