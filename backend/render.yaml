@@ -2,16 +2,22 @@ services:
   - type: web
     name: riskiq-backend
     env: python
+    region: oregon
+    plan: free
+    rootDir: backend
     buildCommand: pip install -r requirements.txt
     startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
     envVars:
-      - key: SECRET_KEY
-        generateValue: true
       - key: ADMIN_EMAIL
         value: safehorizonadvisory@gmail.com
       - key: ADMIN_PASSWORD
-        sync: false
+        value: Ayush@6860
       - key: ADMIN_SECRET_KEY
-        sync: false
+        value: riskiq-admin-2025-secure
+      - key: SECRET_KEY
+        value: riskiq-super-secret-key-2024-production
       - key: DATABASE_URL
         value: sqlite:///./riskiq.db
+      - key: PYTHON_VERSION
+        value: "3.11.0"
