@@ -2,19 +2,63 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy.orm import Session
+from contextlib import asynccontextmanager
 from database import engine, SessionLocal
 import models
 import os
 import json
+import threading
+import time as _time
 from datetime import datetime
 from dotenv import load_dotenv
 
 load_dotenv()
 
-# Create all tables (including new Phase 4/5 tables)
+# Create all tables
 models.Base.metadata.create_all(bind=engine)
 
-app = FastAPI(title="RiskIQ Platform API", version="2.0.0")
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Run startup tasks AFTER the server is ready to accept connections."""
+    # ── startup ──────────────────────────────────────────────────────────────
+    def _startup():
+        _time.sleep(2)  # Let uvicorn fully bind to port first
+        try:
+            seed_database()
+        except Exception as e:
+            print(f"[Startup] seed_database skipped: {e}")
+        try:
+            seed_experts()
+        except Exception as e:
+            print(f"[Startup] seed_experts skipped: {e}")
+        try:
+            from api.news import seed_sources_and_initial_fetch
+            seed_sources_and_initial_fetch()
+        except Exception as e:
+            print(f"[Startup] news seed skipped: {e}")
+        try:
+            from api.market import init_nse_companies
+            init_nse_companies()
+        except Exception as e:
+            print(f"[Startup] NSE init skipped: {e}")
+        print("✅ RiskIQ startup complete")
+        # Auto-refresh news every 30 min
+        while True:
+            _time.sleep(30 * 60)
+            try:
+                from api.news import refresh_all_feeds
+                _db = SessionLocal()
+                result = refresh_all_feeds(_db)
+                _db.close()
+                print(f"[AutoRefresh] +{result['total_new']} new articles")
+            except Exception as _e:
+                print(f"[AutoRefresh] Error: {_e}")
+
+    threading.Thread(target=_startup, daemon=True).start()
+    yield
+    # ── shutdown ─────────────────────────────────────────────────────────────
+
+app = FastAPI(title="RiskIQ Platform API", version="2.0.0", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -226,8 +270,6 @@ Market Risks are amplified by ongoing geopolitical uncertainties and potential r
     finally:
         db.close()
 
-seed_database()
-
 def seed_experts():
     """Seed industry experts and opinions."""
     db = SessionLocal()
@@ -349,41 +391,3 @@ def seed_experts():
     finally:
         db.close()
 
-seed_experts()
-
-# ── Background startup tasks (non-blocking) ───────────────────────────────────
-import threading, time as _time
-
-def _background_startup():
-    """Run heavy startup tasks in background so the server starts immediately."""
-    _time.sleep(3)  # Let the server fully start first
-
-    # News seed
-    try:
-        from api.news import seed_sources_and_initial_fetch
-        seed_sources_and_initial_fetch()
-        print("[Startup] News sources seeded")
-    except Exception as _e:
-        print(f"[Startup] News seed skipped: {_e}")
-
-    # NSE companies init
-    try:
-        from api.market import init_nse_companies
-        init_nse_companies()
-    except Exception as _e:
-        print(f"[Startup] NSE init skipped: {_e}")
-
-    # Auto-refresh news every 30 minutes
-    while True:
-        _time.sleep(30 * 60)
-        try:
-            from api.news import refresh_all_feeds
-            _db = SessionLocal()
-            result = refresh_all_feeds(_db)
-            _db.close()
-            print(f"[AutoRefresh] +{result['total_new']} new articles")
-        except Exception as _e:
-            print(f"[AutoRefresh] Error: {_e}")
-
-threading.Thread(target=_background_startup, daemon=True).start()
-print("✅ RiskIQ API started — background tasks running")
