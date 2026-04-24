@@ -352,12 +352,18 @@ def seed_experts():
 seed_experts()
 
 # ── News: seed sources & initial fetch ───────────────────────────────────────
-from api.news import seed_sources_and_initial_fetch
-seed_sources_and_initial_fetch()
+try:
+    from api.news import seed_sources_and_initial_fetch
+    seed_sources_and_initial_fetch()
+except Exception as _e:
+    print(f"[Startup] News seed skipped: {_e}")
 
 # ── Indian Market: sync NSE companies on startup ──────────────────────────────
-from api.market import init_nse_companies
-init_nse_companies()
+try:
+    from api.market import init_nse_companies
+    init_nse_companies()
+except Exception as _e:
+    print(f"[Startup] NSE init skipped: {_e}")
 
 # ── Background news auto-refresh every 30 minutes ────────────────────────────
 import threading, time as _time
