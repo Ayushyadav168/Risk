@@ -36,6 +36,10 @@ Thumbs.db
 .idea/
 *.swp
 
+# ── Netlify build output ──────────────────────────────────────────────────────
+backend/netlify/functions/api/
+.netlify/
+
 # ── Reports / uploads ─────────────────────────────────────────────────────────
 backend/reports/*.pdf
 backend/reports/*.xlsx

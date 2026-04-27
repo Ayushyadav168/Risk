@@ -1,0 +1,35 @@
+[build]
+  command = """
+    pip install -r backend/requirements.txt mangum --target backend/netlify/functions &&
+    cp -r backend/api backend/netlify/functions/ &&
+    cp backend/main.py backend/database.py backend/models.py backend/schemas.py backend/auth.py backend/auth_utils.py backend/netlify/functions/ &&
+    cp -r backend/services backend/netlify/functions/ 2>/dev/null || true &&
+    cp -r backend/routers backend/netlify/functions/ 2>/dev/null || true &&
+    cd frontend && npm install && npm run build
+  """
+  publish = "frontend/dist"
+
+[functions]
+  directory = "backend/netlify/functions"
+
+[build.environment]
+  PYTHON_VERSION           = "3.11"
+  DATABASE_URL             = "sqlite:///tmp/riskiq.db"
+  SECRET_KEY               = "riskiq-super-secret-key-2024-production"
+  ADMIN_EMAIL              = "safehorizonadvisory@gmail.com"
+  ADMIN_PASSWORD           = "Ayush@6860"
+  ADMIN_SECRET_KEY         = "riskiq-admin-2025-secure"
+  ALLOWED_ORIGINS          = "https://riskiq-dashboard.vercel.app,http://localhost:5173"
+
+# Route all /api/* requests to the Python serverless function
+[[redirects]]
+  from   = "/api/*"
+  to     = "/.netlify/functions/api/:splat"
+  status = 200
+  force  = true
+
+# SPA fallback — all other routes serve the React app
+[[redirects]]
+  from   = "/*"
+  to     = "/index.html"
+  status = 200
