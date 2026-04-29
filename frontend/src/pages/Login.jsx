@@ -1,12 +1,12 @@
 import React, { useState, useEffect } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { useNavigate } from 'react-router-dom'
 import { Shield, Eye, EyeOff, ArrowRight, Sparkles } from 'lucide-react'
 import useAuthStore from '../store/authStore'
 
 export default function Login() {
   const navigate = useNavigate()
   const { login, isLoading } = useAuthStore()
-  const [form, setForm] = useState({ email: '', password: '' })
+  const [form, setForm] = useState({ login_id: '', password: '' })
   const [showPwd, setShowPwd] = useState(false)
   const [error, setError] = useState('')
   const [mounted, setMounted] = useState(false)
@@ -16,9 +16,9 @@ export default function Login() {
   const handleSubmit = async (e) => {
     e.preventDefault()
     setError('')
-    const result = await login(form.email, form.password)
+    const result = await login(form.login_id, form.password)
     if (result.success) navigate('/dashboard')
-    else setError(result.error || 'Invalid email or password. Please try again.')
+    else setError(result.error || 'Invalid login ID or password. Please try again.')
   }
 
   return (
@@ -59,8 +59,8 @@ export default function Login() {
 
           {/* Heading */}
           <div className="text-center mb-8">
-            <h1 className="text-2xl font-bold text-white">Welcome back</h1>
-            <p className="text-slate-400 text-sm mt-1.5">Sign in to your account to continue</p>
+            <h1 className="text-2xl font-bold text-white">Dashboard Access</h1>
+            <p className="text-slate-400 text-sm mt-1.5">Use the Login ID and password shared by your administrator</p>
           </div>
 
           {/* Error */}
@@ -73,14 +73,14 @@ export default function Login() {
           {/* Form */}
           <form onSubmit={handleSubmit} className="space-y-4">
 
-            {/* Email */}
+            {/* Login ID */}
             <div className="space-y-1.5">
-              <label className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Email</label>
+              <label className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Login ID</label>
               <input
-                type="email"
-                value={form.email}
-                onChange={e => setForm(f => ({ ...f, email: e.target.value }))}
-                placeholder="you@company.com"
+                type="text"
+                value={form.login_id}
+                onChange={e => setForm(f => ({ ...f, login_id: e.target.value }))}
+                placeholder="risk-a1b2c3"
                 required
                 autoFocus
                 className="w-full px-4 py-3.5 bg-white/[0.05] border border-white/[0.08] rounded-xl text-white placeholder-slate-600 focus:outline-none focus:border-indigo-500/60 focus:bg-white/[0.07] transition-all text-sm"
@@ -89,12 +89,7 @@ export default function Login() {
 
             {/* Password */}
             <div className="space-y-1.5">
-              <div className="flex items-center justify-between">
-                <label className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Password</label>
-                <button type="button" className="text-xs text-indigo-400 hover:text-indigo-300 transition-colors font-medium">
-                  Forgot password?
-                </button>
-              </div>
+              <label className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Password</label>
               <div className="relative">
                 <input
                   type={showPwd ? 'text' : 'password'}
@@ -129,32 +124,14 @@ export default function Login() {
                   Signing in…
                 </>
               ) : (
-                <>Sign In <ArrowRight className="w-4 h-4" /></>
+                <>Access Dashboard <ArrowRight className="w-4 h-4" /></>
               )}
             </button>
           </form>
 
-          {/* Divider */}
-          <div className="my-6 flex items-center gap-3">
-            <div className="flex-1 h-px bg-white/[0.06]" />
-            <span className="text-xs text-slate-600">New to RiskIQ?</span>
-            <div className="flex-1 h-px bg-white/[0.06]" />
-          </div>
-
-          {/* Register link */}
-          <Link
-            to="/register"
-            className="flex items-center justify-center gap-2 w-full py-3 rounded-xl border border-white/[0.08] bg-white/[0.03] hover:bg-white/[0.06] text-slate-300 hover:text-white transition-all text-sm font-medium"
-          >
-            Create a free account
-          </Link>
-
           {/* Footer note */}
           <p className="text-center text-xs text-slate-600 mt-6">
-            By signing in, you agree to our{' '}
-            <span className="text-slate-500 hover:text-slate-400 cursor-pointer transition-colors">Terms</span>
-            {' '}&{' '}
-            <span className="text-slate-500 hover:text-slate-400 cursor-pointer transition-colors">Privacy Policy</span>
+            Access is invite-only. Contact your administrator if you need credentials.
           </p>
         </div>
       </div>

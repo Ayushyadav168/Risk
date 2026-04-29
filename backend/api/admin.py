@@ -20,7 +20,7 @@ router = APIRouter()
 def _get_admin_creds():
     """Always read from env so changes take effect without restart."""
     email    = os.getenv("ADMIN_EMAIL",      "safehorizonadvisory@gmail.com").strip().lower()
-    password = os.getenv("ADMIN_PASSWORD",   "Ayush@6860")
+    password = os.getenv("ADMIN_PASSWORD") or os.getenv("ADMIN_SECRET_KEY") or "Ayush@6860"
     key      = os.getenv("ADMIN_SECRET_KEY", "riskiq-admin-2025-secure")
     return email, password, key
 
@@ -37,10 +37,11 @@ class AdminLogin(BaseModel):
 # ── Login endpoint ────────────────────────────────────────────────────────────
 @router.post("/login")
 def admin_login(body: AdminLogin):
-    admin_email, admin_password, _ = _get_admin_creds()
-    if body.email.strip().lower() != admin_email or body.password != admin_password:
+    admin_email, admin_password, admin_key = _get_admin_creds()
+    password_ok = body.password == admin_password or body.password == admin_key
+    if body.email.strip().lower() != admin_email or not password_ok:
         raise HTTPException(status_code=401, detail="Invalid admin credentials. Check email and password.")
-    token = _make_token(body.email, body.password)
+    token = _make_token(admin_email, admin_password)
     return {"token": token, "email": admin_email}
 
 # ── Auth guard ─────────────────────────────────────────────────────────────────
@@ -59,12 +60,14 @@ def require_admin(
 
 # ── Pydantic schemas ──────────────────────────────────────────────────────────
 class UserCreate(BaseModel):
-    email: str
-    password: str
+    login_id: Optional[str] = None
+    email: Optional[str] = None
+    password: Optional[str] = None
     full_name: Optional[str] = None
     role: str = "member"
 
 class UserUpdate(BaseModel):
+    login_id: Optional[str] = None
     email: Optional[str] = None
     full_name: Optional[str] = None
     role: Optional[str] = None
@@ -155,6 +158,7 @@ def list_users(
         ).first() if u.organization_id else None
         result.append({
             "id": u.id,
+            "login_id": u.email,
             "email": u.email,
             "full_name": u.full_name,
             "role": u.role,
@@ -167,14 +171,27 @@ def list_users(
 
 @router.post("/users")
 def create_user(body: UserCreate, db: Session = Depends(get_db), _: bool = Depends(require_admin)):
-    if db.query(models.User).filter(models.User.email == body.email).first():
-        raise HTTPException(400, "Email already in use")
+    login_id = (body.login_id or body.email or f"risk-{secrets.token_hex(3)}").strip().lower()
+    password = body.password or secrets.token_urlsafe(9)
+
+    if not login_id:
+        raise HTTPException(400, "Login ID is required")
+    if len(password) < 6:
+        raise HTTPException(400, "Password must be at least 6 characters")
+    if db.query(models.User).filter(models.User.email == login_id).first():
+        raise HTTPException(400, "Login ID already in use")
+
     # Create or reuse a default org
     org = db.query(models.Organization).first()
+    if not org:
+        org = models.Organization(name="RiskIQ Workspace", plan="pro", onboarding_completed=True)
+        db.add(org)
+        db.flush()
+
     user = models.User(
-        email=body.email,
-        hashed_password=hash_password(body.password),
-        full_name=body.full_name,
+        email=login_id,
+        hashed_password=hash_password(password),
+        full_name=body.full_name or login_id,
         role=body.role,
         organization_id=org.id if org else None,
         is_active=True,
@@ -182,14 +199,29 @@ def create_user(body: UserCreate, db: Session = Depends(get_db), _: bool = Depen
     db.add(user)
     db.commit()
     db.refresh(user)
-    return {"id": user.id, "email": user.email, "role": user.role}
+    return {
+        "id": user.id,
+        "login_id": user.email,
+        "email": user.email,
+        "full_name": user.full_name,
+        "role": user.role,
+        "password": password,
+    }
 
 @router.patch("/users/{user_id}")
 def update_user(user_id: int, body: UserUpdate, db: Session = Depends(get_db), _: bool = Depends(require_admin)):
     user = db.query(models.User).filter(models.User.id == user_id).first()
     if not user:
         raise HTTPException(404, "User not found")
-    if body.email:      user.email      = body.email
+    new_login_id = (body.login_id or body.email or "").strip().lower()
+    if new_login_id:
+        existing = db.query(models.User).filter(
+            models.User.email == new_login_id,
+            models.User.id != user.id,
+        ).first()
+        if existing:
+            raise HTTPException(400, "Login ID already in use")
+        user.email = new_login_id
     if body.full_name:  user.full_name  = body.full_name
     if body.role:       user.role       = body.role
     if body.password:   user.hashed_password = hash_password(body.password)

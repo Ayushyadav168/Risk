@@ -6,9 +6,7 @@ import { RefreshProvider } from './context/RefreshContext'
 import Layout from './components/Layout'
 import Landing from './pages/Landing'
 import Login from './pages/Login'
-import Register from './pages/Register'
 import Onboarding from './pages/Onboarding'
-import Pricing from './pages/Pricing'
 import AcceptInvite from './pages/AcceptInvite'
 import Dashboard from './pages/Dashboard'
 import NewAssessment from './pages/NewAssessment'
@@ -50,8 +48,8 @@ export default function App() {
           {/* Public */}
           <Route path="/" element={<Landing />} />
           <Route path="/login" element={<Login />} />
-          <Route path="/register" element={<Register />} />
-          <Route path="/pricing" element={<Pricing />} />
+          <Route path="/register" element={<Navigate to="/login" replace />} />
+          <Route path="/pricing" element={<Navigate to="/" replace />} />
           <Route path="/onboarding" element={<Onboarding />} />
           <Route path="/accept-invite" element={<AcceptInvite />} />
 

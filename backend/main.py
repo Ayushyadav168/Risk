@@ -74,7 +74,7 @@ app.mount("/static/reports", StaticFiles(directory="reports"), name="reports")
 
 # ── Routers ────────────────────────────────────────────────────────────────────
 from api import auth, assessments, risks, ai_service, financial, dashboard, reports
-from api import billing, team, audit, webhooks, companies, experts, news, notifications, market, admin
+from api import billing, team, audit, webhooks, companies, experts, news, notifications, market, admin, access_requests
 
 app.include_router(auth.router,        prefix="/api/auth",        tags=["Authentication"])
 app.include_router(assessments.router, prefix="/api/assessments", tags=["Assessments"])
@@ -93,6 +93,7 @@ app.include_router(news.router,          prefix="/api/news",          tags=["New
 app.include_router(notifications.router, prefix="/api/notifications", tags=["Notifications"])
 app.include_router(market.router,        prefix="/api/market",        tags=["Indian Market"])
 app.include_router(admin.router,         prefix="/api/admin",          tags=["Admin Panel"])
+app.include_router(access_requests.router, prefix="/api/access",       tags=["Access Requests"])
 
 @app.get("/api/templates")
 def get_templates():
@@ -390,4 +391,3 @@ def seed_experts():
         db.rollback()
     finally:
         db.close()
-

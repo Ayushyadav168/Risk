@@ -189,9 +189,10 @@ function UsersSection() {
   const [showAdd, setShowAdd] = useState(false)
   const [editUser, setEditUser] = useState(null)
   const [confirm, setConfirm] = useState(null)
-  const [form, setForm] = useState({ email: '', password: '', full_name: '', role: 'member' })
+  const [form, setForm] = useState({ login_id: '', password: '', full_name: '', role: 'member' })
   const [showPwd, setShowPwd] = useState(false)
   const [saving, setSaving] = useState(false)
+  const [createdCreds, setCreatedCreds] = useState(null)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -201,10 +202,24 @@ function UsersSection() {
 
   useEffect(() => { load() }, [load])
 
+  const makeId = () => `risk-${Math.random().toString(36).slice(2, 8)}`
+  const makePassword = () => Math.random().toString(36).slice(2, 8) + Math.random().toString(36).slice(2, 8)
+
   const handleAdd = async () => {
-    if (!form.email || !form.password) return
+    if (!form.full_name) return
     setSaving(true)
-    try { await adm.post('/users', form); setShowAdd(false); setForm({ email: '', password: '', full_name: '', role: 'member' }); load() }
+    try {
+      const payload = {
+        ...form,
+        login_id: form.login_id || makeId(),
+        password: form.password || makePassword(),
+      }
+      const res = await adm.post('/users', payload)
+      setCreatedCreds({ login_id: res.data.login_id || payload.login_id, password: res.data.password || payload.password, full_name: res.data.full_name || payload.full_name })
+      setShowAdd(false)
+      setForm({ login_id: '', password: '', full_name: '', role: 'member' })
+      load()
+    }
     catch (e) { alert(e.response?.data?.detail || 'Failed') } finally { setSaving(false) }
   }
 
@@ -220,7 +235,7 @@ function UsersSection() {
 
   const cols = [
     { key: 'full_name', label: 'Name', render: u => <span className="text-white font-medium">{u.full_name || '—'}</span> },
-    { key: 'email', label: 'Email' },
+    { key: 'login_id', label: 'Login ID', render: u => <code className="text-indigo-300 bg-indigo-500/10 px-2 py-1 rounded">{u.login_id || u.email}</code> },
     { key: 'role', label: 'Role', render: u => <Badge variant={ROLE[u.role]}>{u.role}</Badge> },
     { key: 'is_active', label: 'Status', render: u => u.is_active
       ? <span className="flex items-center gap-1 text-emerald-400 text-xs"><CheckCircle className="w-3 h-3" />Active</span>
@@ -228,7 +243,7 @@ function UsersSection() {
     { key: '_actions', label: '', render: u => (
       <div className="flex items-center gap-1 justify-end">
         <Btn variant="ghost" onClick={() => setEditUser({ ...u, password: '' })}><Edit2 className="w-3.5 h-3.5" /></Btn>
-        <Btn variant="ghost" onClick={() => setConfirm({ id: u.id, name: u.email })}><Trash2 className="w-3.5 h-3.5 text-red-400" /></Btn>
+        <Btn variant="ghost" onClick={() => setConfirm({ id: u.id, name: u.login_id || u.email })}><Trash2 className="w-3.5 h-3.5 text-red-400" /></Btn>
       </div>
     )},
   ]
@@ -249,20 +264,24 @@ function UsersSection() {
       </div>
 
       {showAdd && (
-        <Modal title="Add New User" onClose={() => setShowAdd(false)}>
-          <TField label="Email *" type="email" placeholder="user@example.com" value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))} />
-          <TField label="Full Name" placeholder="John Smith" value={form.full_name} onChange={e => setForm(f => ({ ...f, full_name: e.target.value }))} />
+        <Modal title="Create Dashboard Access" onClose={() => setShowAdd(false)}>
+          <TField label="Name *" placeholder="John Smith" value={form.full_name} onChange={e => setForm(f => ({ ...f, full_name: e.target.value }))} />
+          <div className="grid grid-cols-[1fr_auto] gap-2 items-end">
+            <TField label="Login ID" type="text" placeholder="risk-a1b2c3" value={form.login_id} onChange={e => setForm(f => ({ ...f, login_id: e.target.value }))} />
+            <Btn variant="ghost" onClick={() => setForm(f => ({ ...f, login_id: makeId() }))}>Random</Btn>
+          </div>
           <div className="space-y-1">
-            <label className="block text-xs text-slate-400 font-medium">Password *</label>
+            <label className="block text-xs text-slate-400 font-medium">Password</label>
             <div className="relative">
               <input type={showPwd ? 'text' : 'password'} value={form.password}
                 onChange={e => setForm(f => ({ ...f, password: e.target.value }))}
-                placeholder="Min 6 characters"
+                placeholder="Leave blank to generate"
                 className="w-full px-3 py-2.5 pr-10 bg-[#0d1426] border border-white/[0.08] rounded-lg text-sm text-white placeholder-slate-600 focus:outline-none focus:border-indigo-500/60 transition-all" />
               <button type="button" onClick={() => setShowPwd(s => !s)} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300 transition-colors">
                 {showPwd ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
               </button>
             </div>
+            <Btn variant="ghost" onClick={() => setForm(f => ({ ...f, password: makePassword() }))}>Generate Password</Btn>
           </div>
           <TSelect label="Role" value={form.role} onChange={e => setForm(f => ({ ...f, role: e.target.value }))}>
             <option value="member">Member</option>
@@ -276,9 +295,24 @@ function UsersSection() {
         </Modal>
       )}
 
+      {createdCreds && (
+        <Modal title="User Credentials Created" onClose={() => setCreatedCreds(null)}>
+          <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/10 p-4 text-sm text-emerald-300">
+            Share these credentials with the user. The password is shown only now.
+          </div>
+          <TField label="Name" value={createdCreds.full_name || ''} readOnly />
+          <TField label="Login ID" value={createdCreds.login_id || ''} readOnly />
+          <TField label="Password" value={createdCreds.password || ''} readOnly />
+          <div className="flex justify-end gap-2 pt-2">
+            <Btn variant="ghost" onClick={() => navigator.clipboard?.writeText(`Login ID: ${createdCreds.login_id}\nPassword: ${createdCreds.password}`)}>Copy</Btn>
+            <Btn onClick={() => setCreatedCreds(null)}>Done</Btn>
+          </div>
+        </Modal>
+      )}
+
       {editUser && (
         <Modal title="Edit User" onClose={() => setEditUser(null)}>
-          <TField label="Email" type="email" value={editUser.email} onChange={e => setEditUser(u => ({ ...u, email: e.target.value }))} />
+          <TField label="Login ID" type="text" value={editUser.login_id || editUser.email || ''} onChange={e => setEditUser(u => ({ ...u, login_id: e.target.value, email: e.target.value }))} />
           <TField label="Full Name" value={editUser.full_name || ''} onChange={e => setEditUser(u => ({ ...u, full_name: e.target.value }))} />
           <TField label="New Password (leave blank to keep)" type="password" value={editUser.password || ''} onChange={e => setEditUser(u => ({ ...u, password: e.target.value }))} placeholder="••••••••" />
           <TSelect label="Role" value={editUser.role} onChange={e => setEditUser(u => ({ ...u, role: e.target.value }))}>

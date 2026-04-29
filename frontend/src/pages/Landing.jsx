@@ -1,6 +1,7 @@
-import React from 'react'
+import React, { useState } from 'react'
 import { Link } from 'react-router-dom'
-import { Shield, Brain, BarChart3, FileText, TrendingUp, Lock, CheckCircle, ArrowRight, Star, ChevronRight } from 'lucide-react'
+import { Shield, Brain, BarChart3, FileText, TrendingUp, Lock, CheckCircle, ArrowRight, Star, ChevronRight, Mail, Phone, Building2, User, Send } from 'lucide-react'
+import { accessAPI } from '../lib/api'
 
 const features = [
   { icon: Brain, title: 'AI-Powered Analysis', desc: 'GPT-4 analyzes your business context to identify hidden risks and provide actionable recommendations in seconds.' },
@@ -17,13 +18,48 @@ const steps = [
   { num: '03', title: 'Manage & Mitigate', desc: 'Track risks, assign owners, implement mitigations, and generate board-ready reports automatically.' },
 ]
 
-const pricing = [
-  { name: 'Free', price: '$0', period: '/month', features: ['3 Assessments', '20 Risks', 'Basic Heatmap', 'PDF Reports', 'Email Support'], cta: 'Start Free', highlight: false },
-  { name: 'Pro', price: '$49', period: '/month', features: ['Unlimited Assessments', 'Unlimited Risks', 'AI Analysis', 'Financial Tools', 'Priority Support', 'Custom Templates'], cta: 'Start Pro Trial', highlight: true },
-  { name: 'Enterprise', price: 'Custom', period: '', features: ['Everything in Pro', 'SSO / SAML', 'API Access', 'Custom Integrations', 'Dedicated CSM', 'SLA Guarantee'], cta: 'Contact Sales', highlight: false },
-]
-
 export default function Landing() {
+  const [form, setForm] = useState({
+    full_name: '',
+    email: '',
+    phone: '',
+    company_name: '',
+    job_title: '',
+    industry: '',
+    company_size: '',
+    website: '',
+    message: '',
+  })
+  const [submitting, setSubmitting] = useState(false)
+  const [status, setStatus] = useState({ type: '', message: '' })
+
+  const set = (key) => (e) => setForm(prev => ({ ...prev, [key]: e.target.value }))
+
+  const handleAccessRequest = async (e) => {
+    e.preventDefault()
+    setStatus({ type: '', message: '' })
+    setSubmitting(true)
+    try {
+      await accessAPI.request(form)
+      setStatus({ type: 'success', message: 'Request sent. We will review your details and share dashboard access if approved.' })
+      setForm({
+        full_name: '',
+        email: '',
+        phone: '',
+        company_name: '',
+        job_title: '',
+        industry: '',
+        company_size: '',
+        website: '',
+        message: '',
+      })
+    } catch (err) {
+      setStatus({ type: 'error', message: err.response?.data?.detail || 'Could not send request. Please try again.' })
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
   return (
     <div className="min-h-screen bg-slate-950 text-white overflow-hidden">
       {/* Navbar */}
@@ -38,13 +74,13 @@ export default function Landing() {
           <div className="hidden md:flex items-center gap-8 text-sm text-slate-400">
             <a href="#features" className="hover:text-white transition-colors">Features</a>
             <a href="#how-it-works" className="hover:text-white transition-colors">How It Works</a>
-            <a href="#pricing" className="hover:text-white transition-colors">Pricing</a>
+            <a href="#request-access" className="hover:text-white transition-colors">Request Access</a>
           </div>
           <div className="flex items-center gap-3">
-            <Link to="/login" className="text-sm text-slate-400 hover:text-white transition-colors px-3 py-1.5">Sign In</Link>
-            <Link to="/register" className="btn-primary text-sm px-4 py-2 rounded-lg bg-primary-500 hover:bg-primary-600 font-medium transition-colors">
-              Get Started
-            </Link>
+            <a href="#request-access" className="btn-primary text-sm px-4 py-2 rounded-lg bg-primary-500 hover:bg-primary-600 font-medium transition-colors">
+              Request Access
+            </a>
+            <Link to="/login" className="text-sm text-slate-400 hover:text-white transition-colors px-3 py-1.5">Login</Link>
           </div>
         </div>
       </nav>
@@ -74,20 +110,20 @@ export default function Landing() {
           </p>
           
           <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
-            <Link
-              to="/register"
+            <a
+              href="#request-access"
               className="flex items-center gap-2 bg-primary-500 hover:bg-primary-600 text-white font-semibold px-8 py-4 rounded-xl text-lg transition-all duration-200 shadow-lg shadow-primary-500/25 hover:shadow-primary-500/40 hover:scale-105"
             >
-              Start Free Assessment
+              Request Dashboard Access
               <ArrowRight className="w-5 h-5" />
-            </Link>
-            <Link
-              to="/login"
+            </a>
+            <a
+              href="#features"
               className="flex items-center gap-2 bg-slate-800 hover:bg-slate-700 text-white font-semibold px-8 py-4 rounded-xl text-lg transition-all duration-200 border border-slate-700"
             >
-              View Demo
+              View Features
               <ChevronRight className="w-5 h-5" />
-            </Link>
+            </a>
           </div>
 
           <div className="mt-12 flex items-center justify-center gap-8 text-sm text-slate-500">
@@ -120,15 +156,15 @@ export default function Landing() {
               ))}
             </div>
             <div className="grid grid-cols-3 gap-3">
-              <div className="col-span-2 bg-slate-900 rounded-xl p-4 h-32 flex items-center justify-center">
-                <div className="grid grid-cols-5 gap-1 w-full">
+              <div className="col-span-2 bg-slate-900 rounded-xl p-4 h-32 flex items-center justify-center overflow-hidden">
+                <div className="grid grid-cols-5 grid-rows-5 gap-1 h-full aspect-square max-w-full">
                   {['#10B981','#F59E0B','#F59E0B','#EF4444','#EF4444',
                     '#10B981','#F59E0B','#EF4444','#EF4444','#DC2626',
                     '#F59E0B','#EF4444','#EF4444','#DC2626','#DC2626',
                     '#F59E0B','#EF4444','#DC2626','#DC2626','#DC2626',
                     '#EF4444','#DC2626','#DC2626','#DC2626','#DC2626',
                   ].map((color, i) => (
-                    <div key={i} className="rounded aspect-square" style={{ backgroundColor: color, opacity: 0.7 }}></div>
+                    <div key={i} className="rounded min-h-0 min-w-0" style={{ backgroundColor: color, opacity: 0.7 }}></div>
                   ))}
                 </div>
               </div>
@@ -186,47 +222,81 @@ export default function Landing() {
         </div>
       </section>
 
-      {/* Pricing */}
-      <section id="pricing" className="py-24 px-6 bg-slate-900">
-        <div className="max-w-5xl mx-auto">
-          <div className="text-center mb-16">
-            <h2 className="text-4xl font-bold mb-4">Simple, Transparent <span className="text-primary-400">Pricing</span></h2>
-            <p className="text-slate-400">Start free. Scale when you're ready.</p>
+      {/* Request Access */}
+      <section id="request-access" className="py-24 px-6 bg-slate-900">
+        <div className="max-w-6xl mx-auto grid lg:grid-cols-[0.8fr_1.2fr] gap-10 items-start">
+          <div className="space-y-6">
+            <div>
+              <h2 className="text-4xl font-bold mb-4">Request <span className="text-primary-400">Dashboard Access</span></h2>
+              <p className="text-slate-400 leading-relaxed">
+                Share your details and we will review your request. Access credentials are created manually from the admin panel and sent only to approved users.
+              </p>
+            </div>
+            <div className="space-y-3 text-sm text-slate-300">
+              <div className="flex items-center gap-3"><Mail className="w-4 h-4 text-primary-400" /> Requests go to safehorizonadvisory@gmail.com</div>
+              <div className="flex items-center gap-3"><Shield className="w-4 h-4 text-primary-400" /> Invite-only dashboard access</div>
+              <div className="flex items-center gap-3"><CheckCircle className="w-4 h-4 text-primary-400" /> Business details reviewed before approval</div>
+            </div>
+            <Link to="/login" className="inline-flex items-center gap-2 text-sm text-slate-400 hover:text-white transition-colors">
+              Already have credentials? Login <ChevronRight className="w-4 h-4" />
+            </Link>
           </div>
-          <div className="grid md:grid-cols-3 gap-6">
-            {pricing.map(({ name, price, period, features: feats, cta, highlight }) => (
-              <div key={name} className={`relative rounded-2xl p-8 border ${highlight ? 'bg-primary-500/10 border-primary-500 shadow-xl shadow-primary-500/10' : 'bg-slate-800 border-slate-700'}`}>
-                {highlight && (
-                  <div className="absolute -top-3 left-1/2 -translate-x-1/2 bg-primary-500 text-white text-xs font-bold px-4 py-1 rounded-full">
-                    MOST POPULAR
-                  </div>
-                )}
-                <h3 className="text-lg font-bold mb-2">{name}</h3>
-                <div className="flex items-baseline gap-1 mb-6">
-                  <span className="text-4xl font-black">{price}</span>
-                  <span className="text-slate-400">{period}</span>
-                </div>
-                <ul className="space-y-3 mb-8">
-                  {feats.map(f => (
-                    <li key={f} className="flex items-center gap-2 text-sm text-slate-300">
-                      <CheckCircle className="w-4 h-4 text-emerald-400 flex-shrink-0" />
-                      {f}
-                    </li>
-                  ))}
-                </ul>
-                <Link
-                  to="/register"
-                  className={`block text-center py-3 rounded-xl font-semibold text-sm transition-all ${
-                    highlight 
-                      ? 'bg-primary-500 hover:bg-primary-600 text-white shadow-lg shadow-primary-500/25' 
-                      : 'bg-slate-700 hover:bg-slate-600 text-white'
-                  }`}
-                >
-                  {cta}
-                </Link>
+
+          <form onSubmit={handleAccessRequest} className="bg-slate-800 border border-slate-700 rounded-2xl p-6 shadow-2xl space-y-4">
+            <div className="grid md:grid-cols-2 gap-4">
+              <label className="space-y-1.5">
+                <span className="text-xs font-semibold uppercase tracking-wider text-slate-400 flex items-center gap-1.5"><User className="w-3.5 h-3.5" /> Full Name *</span>
+                <input required value={form.full_name} onChange={set('full_name')} className="w-full px-3 py-3 rounded-xl bg-slate-950 border border-slate-700 text-sm text-white focus:outline-none focus:border-primary-500" placeholder="Your name" />
+              </label>
+              <label className="space-y-1.5">
+                <span className="text-xs font-semibold uppercase tracking-wider text-slate-400 flex items-center gap-1.5"><Mail className="w-3.5 h-3.5" /> Email *</span>
+                <input required type="email" value={form.email} onChange={set('email')} className="w-full px-3 py-3 rounded-xl bg-slate-950 border border-slate-700 text-sm text-white focus:outline-none focus:border-primary-500" placeholder="you@company.com" />
+              </label>
+              <label className="space-y-1.5">
+                <span className="text-xs font-semibold uppercase tracking-wider text-slate-400 flex items-center gap-1.5"><Phone className="w-3.5 h-3.5" /> Phone Number *</span>
+                <input required value={form.phone} onChange={set('phone')} className="w-full px-3 py-3 rounded-xl bg-slate-950 border border-slate-700 text-sm text-white focus:outline-none focus:border-primary-500" placeholder="+91 98765 43210" />
+              </label>
+              <label className="space-y-1.5">
+                <span className="text-xs font-semibold uppercase tracking-wider text-slate-400 flex items-center gap-1.5"><Building2 className="w-3.5 h-3.5" /> Company Name *</span>
+                <input required value={form.company_name} onChange={set('company_name')} className="w-full px-3 py-3 rounded-xl bg-slate-950 border border-slate-700 text-sm text-white focus:outline-none focus:border-primary-500" placeholder="Company Pvt Ltd" />
+              </label>
+              <label className="space-y-1.5">
+                <span className="text-xs font-semibold uppercase tracking-wider text-slate-400">Job Title</span>
+                <input value={form.job_title} onChange={set('job_title')} className="w-full px-3 py-3 rounded-xl bg-slate-950 border border-slate-700 text-sm text-white focus:outline-none focus:border-primary-500" placeholder="Founder, CFO, Risk Manager" />
+              </label>
+              <label className="space-y-1.5">
+                <span className="text-xs font-semibold uppercase tracking-wider text-slate-400">Industry</span>
+                <input value={form.industry} onChange={set('industry')} className="w-full px-3 py-3 rounded-xl bg-slate-950 border border-slate-700 text-sm text-white focus:outline-none focus:border-primary-500" placeholder="Finance, SaaS, Manufacturing" />
+              </label>
+              <label className="space-y-1.5">
+                <span className="text-xs font-semibold uppercase tracking-wider text-slate-400">Company Size</span>
+                <select value={form.company_size} onChange={set('company_size')} className="w-full px-3 py-3 rounded-xl bg-slate-950 border border-slate-700 text-sm text-white focus:outline-none focus:border-primary-500">
+                  <option value="">Select size</option>
+                  <option>1-10 employees</option>
+                  <option>11-50 employees</option>
+                  <option>51-200 employees</option>
+                  <option>201-1000 employees</option>
+                  <option>1000+ employees</option>
+                </select>
+              </label>
+              <label className="space-y-1.5">
+                <span className="text-xs font-semibold uppercase tracking-wider text-slate-400">Website</span>
+                <input value={form.website} onChange={set('website')} className="w-full px-3 py-3 rounded-xl bg-slate-950 border border-slate-700 text-sm text-white focus:outline-none focus:border-primary-500" placeholder="https://company.com" />
+              </label>
+            </div>
+            <label className="space-y-1.5 block">
+              <span className="text-xs font-semibold uppercase tracking-wider text-slate-400">What do you need RiskIQ for?</span>
+              <textarea value={form.message} onChange={set('message')} rows={4} className="w-full px-3 py-3 rounded-xl bg-slate-950 border border-slate-700 text-sm text-white focus:outline-none focus:border-primary-500 resize-none" placeholder="Tell us about your risk management use case, team, or access needs." />
+            </label>
+            {status.message && (
+              <div className={`rounded-xl border px-4 py-3 text-sm ${status.type === 'success' ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-300' : 'bg-red-500/10 border-red-500/20 text-red-300'}`}>
+                {status.message}
               </div>
-            ))}
-          </div>
+            )}
+            <button disabled={submitting} className="w-full inline-flex items-center justify-center gap-2 bg-primary-500 hover:bg-primary-600 disabled:opacity-60 disabled:cursor-not-allowed text-white font-semibold px-6 py-3.5 rounded-xl transition-colors">
+              {submitting ? 'Sending Request...' : <><Send className="w-4 h-4" /> Send Access Request</>}
+            </button>
+          </form>
         </div>
       </section>
 
@@ -235,13 +305,13 @@ export default function Landing() {
         <div className="max-w-3xl mx-auto text-center">
           <h2 className="text-4xl font-bold mb-6">Ready to Take Control of Your Risk?</h2>
           <p className="text-slate-400 text-lg mb-10">Join hundreds of organizations using RiskIQ to protect their business with AI-powered risk intelligence.</p>
-          <Link
-            to="/register"
+          <a
+            href="#request-access"
             className="inline-flex items-center gap-2 bg-primary-500 hover:bg-primary-600 text-white font-bold px-10 py-4 rounded-xl text-lg transition-all duration-200 shadow-lg shadow-primary-500/25 hover:scale-105"
           >
-            Start Your Free Assessment
+            Request Dashboard Access
             <ArrowRight className="w-5 h-5" />
-          </Link>
+          </a>
         </div>
       </section>
 

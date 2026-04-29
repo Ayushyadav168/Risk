@@ -56,7 +56,7 @@ export default function Pricing() {
   }, [])
 
   const handleUpgrade = async (planId) => {
-    if (!isAuthenticated()) { navigate('/register'); return }
+    if (!isAuthenticated()) { navigate('/login'); return }
     if (planId === 'free' || planId === currentPlan) return
     if (planId === 'enterprise') {
       window.open('mailto:sales@riskiq.com?subject=Enterprise Plan Inquiry', '_blank')
