@@ -17,15 +17,16 @@ from pydantic import BaseModel
 
 router = APIRouter()
 
-ADMIN_EMAIL    = os.getenv("ADMIN_EMAIL",      "safehorizonadvisory@gmail.com")
-ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD",   "Ayush@6860")
-ADMIN_KEY      = os.getenv("ADMIN_SECRET_KEY", "riskiq-admin-2025-secure")
-
-# In-memory session store (resets on server restart — fine for single-admin use)
-_sessions: set = set()
+def _get_admin_creds():
+    """Always read from env so changes take effect without restart."""
+    email    = os.getenv("ADMIN_EMAIL",      "safehorizonadvisory@gmail.com").strip().lower()
+    password = os.getenv("ADMIN_PASSWORD",   "Ayush@6860")
+    key      = os.getenv("ADMIN_SECRET_KEY", "riskiq-admin-2025-secure")
+    return email, password, key
 
 def _make_token(email: str, password: str) -> str:
-    raw = f"{email}:{password}:{ADMIN_KEY}"
+    _, _, key = _get_admin_creds()
+    raw = f"{email.strip().lower()}:{password}:{key}"
     return hashlib.sha256(raw.encode()).hexdigest()
 
 # ── Login schema ──────────────────────────────────────────────────────────────
@@ -36,24 +37,23 @@ class AdminLogin(BaseModel):
 # ── Login endpoint ────────────────────────────────────────────────────────────
 @router.post("/login")
 def admin_login(body: AdminLogin):
-    if body.email.lower().strip() != ADMIN_EMAIL.lower().strip() or body.password != ADMIN_PASSWORD:
-        raise HTTPException(status_code=401, detail="Invalid admin credentials")
+    admin_email, admin_password, _ = _get_admin_creds()
+    if body.email.strip().lower() != admin_email or body.password != admin_password:
+        raise HTTPException(status_code=401, detail="Invalid admin credentials. Check email and password.")
     token = _make_token(body.email, body.password)
-    _sessions.add(token)
-    return {"token": token, "email": ADMIN_EMAIL}
+    return {"token": token, "email": admin_email}
 
-# ── Auth guard (accepts both token header AND legacy key header) ───────────────
+# ── Auth guard ─────────────────────────────────────────────────────────────────
 def require_admin(
     x_admin_token: Optional[str] = Header(None),
     x_admin_key:   Optional[str] = Header(None),
 ):
-    # New: token from login
+    admin_email, admin_password, admin_key = _get_admin_creds()
     if x_admin_token:
-        expected = _make_token(ADMIN_EMAIL, ADMIN_PASSWORD)
+        expected = _make_token(admin_email, admin_password)
         if x_admin_token == expected:
             return True
-    # Legacy: raw secret key
-    if x_admin_key and x_admin_key == ADMIN_KEY:
+    if x_admin_key and x_admin_key == admin_key:
         return True
     raise HTTPException(status_code=403, detail="Admin authentication required")
 
