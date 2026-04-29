@@ -89,8 +89,8 @@ def get_notifications(
                 "type":     "alert",
                 "icon":     "alert-triangle",
                 "color":    "red" if risk.severity == "critical" else "amber",
-                "title":    f"{risk.severity.upper()} Risk: {risk.title}",
-                "message":  f"Severity: {risk.severity} · Likelihood: {risk.likelihood} · Impact: {risk.impact}",
+                "title":    f"{risk.severity.upper()} Risk: {risk.name}",
+                "message":  f"Severity: {risk.severity} · Probability: {risk.probability} · Impact: {risk.impact}",
                 "time":     risk.created_at.isoformat() if risk.created_at else None,
                 "read":     False,
             })

@@ -28,6 +28,9 @@ import ExpertsPanel from './pages/ExpertsPanel'
 import News from './pages/News'
 import IndianMarket from './pages/IndianMarket'
 import AdminPanel from './pages/AdminPanel'
+import ActionCenter from './pages/ActionCenter'
+import KRIMonitor from './pages/KRIMonitor'
+import AICopilot from './pages/AICopilot'
 
 function ProtectedRoute({ children }) {
   const { isAuthenticated } = useAuthStore()
@@ -36,10 +39,7 @@ function ProtectedRoute({ children }) {
 
 export default function App() {
   useEffect(() => {
-    const theme = localStorage.getItem('theme')
-    if (theme === 'dark' || (!theme && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
-      document.documentElement.classList.add('dark')
-    }
+    document.documentElement.classList.add('dark')
   }, [])
 
   return (
@@ -74,6 +74,9 @@ export default function App() {
             <Route path="experts"             element={<ExpertsPanel />} />
             <Route path="news"                element={<News />} />
             <Route path="indian-market"       element={<IndianMarket />} />
+            <Route path="action-center"       element={<ActionCenter />} />
+            <Route path="kri"                 element={<KRIMonitor />} />
+            <Route path="ai-copilot"          element={<AICopilot />} />
           </Route>
 
           {/* Admin — standalone, no app shell */}

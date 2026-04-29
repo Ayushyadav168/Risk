@@ -45,7 +45,9 @@ export const risksAPI = {
   get: (id) => api.get(`/risks/${id}`),
   update: (id, data) => api.put(`/risks/${id}`, data),
   delete: (id) => api.delete(`/risks/${id}`),
-  addMitigation: (riskId, data) => api.post(`/risks/${riskId}/mitigations`, data),
+  addMitigation:    (riskId, data)               => api.post(`/risks/${riskId}/mitigations`, data),
+  deleteMitigation: (riskId, mitigationId)       => api.delete(`/risks/${riskId}/mitigations/${mitigationId}`),
+  updateMitigation: (riskId, mitigationId, data) => api.patch(`/risks/${riskId}/mitigations/${mitigationId}`, data),
 }
 
 export const aiAPI = {

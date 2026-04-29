@@ -138,3 +138,59 @@ def add_mitigation(risk_id: int, data: schemas.MitigationCreate, db: Session = D
     db.commit()
     db.refresh(mitigation)
     return mitigation
+
+
+@router.delete("/{risk_id}/mitigations/{mitigation_id}")
+def delete_mitigation(
+    risk_id: int,
+    mitigation_id: int,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    mitigation = (
+        db.query(models.Mitigation)
+        .join(models.Risk)
+        .join(models.Assessment)
+        .filter(
+            models.Mitigation.id == mitigation_id,
+            models.Mitigation.risk_id == risk_id,
+            models.Assessment.created_by_id == current_user.id,
+        )
+        .first()
+    )
+    if not mitigation:
+        raise HTTPException(status_code=404, detail="Mitigation not found")
+    db.delete(mitigation)
+    db.commit()
+    return {"message": "Mitigation deleted"}
+
+
+@router.patch("/{risk_id}/mitigations/{mitigation_id}")
+def update_mitigation(
+    risk_id: int,
+    mitigation_id: int,
+    data: dict,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    mitigation = (
+        db.query(models.Mitigation)
+        .join(models.Risk)
+        .join(models.Assessment)
+        .filter(
+            models.Mitigation.id == mitigation_id,
+            models.Mitigation.risk_id == risk_id,
+            models.Assessment.created_by_id == current_user.id,
+        )
+        .first()
+    )
+    if not mitigation:
+        raise HTTPException(status_code=404, detail="Mitigation not found")
+    allowed = {"title", "description", "status", "priority", "action_type",
+               "assigned_to", "estimated_cost", "expected_reduction", "due_date"}
+    for key, val in data.items():
+        if key in allowed and hasattr(mitigation, key):
+            setattr(mitigation, key, val)
+    db.commit()
+    db.refresh(mitigation)
+    return mitigation
