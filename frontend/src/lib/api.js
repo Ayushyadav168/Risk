@@ -119,6 +119,7 @@ export const companyAPI = {
   fetch: (ticker) => api.get(`/companies/fetch/${ticker}`),
   fetchAndSave: (ticker) => api.post(`/companies/fetch-and-save/${ticker}`),
   analyze: (id) => api.post(`/companies/${id}/analyze`),
+  searchSuggestions: (q) => api.get('/companies/search-suggestions', { params: { q } }),
 }
 
 export const newsAPI = {

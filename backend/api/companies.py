@@ -123,58 +123,69 @@ def fetch_screener_data(ticker: str) -> dict:
         from bs4 import BeautifulSoup
 
         headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-            'Accept-Language': 'en-US,en;q=0.5',
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+            'Accept-Language': 'en-US,en;q=0.9',
+            'Accept-Encoding': 'gzip, deflate, br',
+            'Connection': 'keep-alive',
         }
 
-        url = f"https://www.screener.in/company/{ticker.upper()}/consolidated/"
-        resp = requests.get(url, headers=headers, timeout=15)
-
-        if resp.status_code == 404:
-            # Try non-consolidated
-            url = f"https://www.screener.in/company/{ticker.upper()}/"
-            resp = requests.get(url, headers=headers, timeout=15)
-
-        if resp.status_code != 200:
-            return {"error": f"Could not fetch data for {ticker}. Status: {resp.status_code}"}
+        # Try consolidated first, then standalone
+        for suffix in ['/consolidated/', '/']:
+            url = f"https://www.screener.in/company/{ticker.upper()}{suffix}"
+            resp = requests.get(url, headers=headers, timeout=20)
+            if resp.status_code == 200:
+                break
+        else:
+            return {"error": f"Company '{ticker}' not found on Screener.in. Check the NSE/BSE ticker symbol."}
 
         soup = BeautifulSoup(resp.text, 'html.parser')
         data = {}
 
-        # Company name
-        h1 = soup.find('h1', class_='h2')
+        # ── Company name ──────────────────────────────────────────────────────
+        h1 = soup.find('h1')
         if h1:
             data['name'] = h1.get_text(strip=True)
+        else:
+            data['name'] = ticker.upper()
 
-        # Company description
-        desc_div = soup.find('div', class_='company-profile')
-        if desc_div:
-            p = desc_div.find('p')
-            if p:
-                data['description'] = p.get_text(strip=True)[:500]
+        # ── Company description ───────────────────────────────────────────────
+        for sel in ['div.about p', 'div.company-profile p', 'p.about']:
+            el = soup.select_one(sel)
+            if el:
+                data['description'] = el.get_text(strip=True)[:600]
+                break
 
-        # Key ratios section
+        # ── Industry / sector ─────────────────────────────────────────────────
+        sector_tag = soup.find('a', href=lambda h: h and '/screen/raw/?sector' in h)
+        industry_tag = soup.find('a', href=lambda h: h and '/screen/raw/?industry' in h)
+        if sector_tag:
+            data['sector'] = sector_tag.get_text(strip=True)
+        if industry_tag:
+            data['industry'] = industry_tag.get_text(strip=True)
+
+        # ── Key ratios ────────────────────────────────────────────────────────
         ratios_section = soup.find('ul', id='top-ratios')
         if ratios_section:
             for li in ratios_section.find_all('li'):
                 name_span = li.find('span', class_='name')
-                value_span = li.find('span', class_='number')
-                if not name_span or not value_span:
+                # number span holds the clean numeric value
+                num_span = li.find('span', class_='number')
+                if not name_span or not num_span:
                     continue
                 name = name_span.get_text(strip=True).lower()
-                value_text = value_span.get_text(strip=True)
-                value = _parse_number(value_text)
+                value = _parse_number(num_span.get_text(strip=True))
 
                 if 'market cap' in name:
                     data['market_cap'] = value
-                elif 'current price' in name or 'stock p/e' not in name and 'price' in name:
-                    if 'current_price' not in data:
-                        data['current_price'] = value
-                elif 'stock p/e' in name or 'p/e' == name:
+                elif 'current price' in name:
+                    data['current_price'] = value
+                elif 'high / low' in name:
+                    pass  # skip range
+                elif 'stock p/e' in name or name == 'p/e':
                     data['pe_ratio'] = value
-                elif 'p/b' in name or 'price to book' in name:
-                    data['pb_ratio'] = value
+                elif 'book value' in name:
+                    data['pb_ratio'] = value  # approximation
                 elif 'dividend yield' in name:
                     data['dividend_yield'] = value
                 elif 'roce' in name:
@@ -187,150 +198,99 @@ def fetch_screener_data(ticker: str) -> dict:
                     data['eps'] = value
                 elif 'debt' in name:
                     data['debt_to_equity'] = value
+                elif 'current ratio' in name:
+                    data['current_ratio'] = value
 
-        # Pros and Cons (strengths/weaknesses)
-        pros = []
-        cons = []
+        # ── Pros / Cons ───────────────────────────────────────────────────────
+        pros, cons = [], []
 
-        analysis_section = soup.find('div', class_='analysis-container') or soup.find('section', id='analysis')
-        if not analysis_section:
-            # Try finding by text
-            for section in soup.find_all('section'):
-                h2 = section.find(['h2','h3'])
-                if h2 and 'pros' in h2.get_text(strip=True).lower():
-                    analysis_section = section
-                    break
+        # Screener uses <ul class="pros"> and <ul class="cons">
+        pros_ul = soup.find('ul', class_='pros')
+        cons_ul = soup.find('ul', class_='cons')
 
-        # Look for pros/cons divs
-        for div in soup.find_all('div', class_='pros-cons') or []:
-            pros_div = div.find('div', class_='pros')
-            cons_div = div.find('div', class_='cons')
-            if pros_div:
-                pros = [li.get_text(strip=True) for li in pros_div.find_all('li')]
-            if cons_div:
-                cons = [li.get_text(strip=True) for li in cons_div.find_all('li')]
+        if pros_ul:
+            pros = [li.get_text(strip=True) for li in pros_ul.find_all('li') if li.get_text(strip=True)][:6]
+        if cons_ul:
+            cons = [li.get_text(strip=True) for li in cons_ul.find_all('li') if li.get_text(strip=True)][:6]
 
-        # Alternative: look for any ul with class containing pros/cons
+        # Fallback: look for div.pros and div.cons
         if not pros:
-            pros_ul = soup.find('ul', class_=lambda c: c and 'pros' in c.lower() if c else False)
-            if pros_ul:
-                pros = [li.get_text(strip=True) for li in pros_ul.find_all('li')][:5]
-
+            pros_div = soup.find('div', class_='pros')
+            if pros_div:
+                pros = [li.get_text(strip=True) for li in pros_div.find_all('li')][:6]
         if not cons:
-            cons_ul = soup.find('ul', class_=lambda c: c and 'cons' in c.lower() if c else False)
-            if cons_ul:
-                cons = [li.get_text(strip=True) for li in cons_ul.find_all('li')][:5]
+            cons_div = soup.find('div', class_='cons')
+            if cons_div:
+                cons = [li.get_text(strip=True) for li in cons_div.find_all('li')][:6]
 
         data['strengths'] = pros
         data['weaknesses'] = cons
 
-        # Financial tables - Income Statement
-        income_data = {"years": [], "revenue": [], "profit": [], "ebitda": []}
+        # ── Helper: parse a financial table section ───────────────────────────
+        def parse_table(section_id, row_map, max_cols=6):
+            section = soup.find('section', id=section_id)
+            result = {k: [] for k in ['years'] + list(row_map.keys())}
+            if not section:
+                return result
+            table = section.find('table')
+            if not table:
+                return result
+            thead = table.find('thead')
+            if thead:
+                ths = [th.get_text(strip=True) for th in thead.find_all('th')][1:]
+                result['years'] = ths[-max_cols:]
+            for row in table.find_all('tr'):
+                cells = row.find_all('td')
+                if not cells:
+                    continue
+                label = cells[0].get_text(strip=True).lower().strip('+').strip()
+                vals = [_parse_number(c.get_text(strip=True)) for c in cells[1:]]
+                vals = vals[-max_cols:]
+                for key, patterns in row_map.items():
+                    if any(p in label for p in patterns):
+                        result[key] = vals
+                        break
+            return result
 
-        # Find profit and loss table
-        pl_section = soup.find('section', id='profit-loss')
-        if pl_section:
-            table = pl_section.find('table')
-            if table:
-                headers_row = table.find('thead')
-                if headers_row:
-                    years = [th.get_text(strip=True) for th in headers_row.find_all('th')][1:]
-                    income_data['years'] = years[-5:]  # Last 5 years
+        # ── Income Statement ──────────────────────────────────────────────────
+        income = parse_table('profit-loss', {
+            'revenue': ['sales', 'revenue', 'net sales'],
+            'profit':  ['net profit', 'profit after tax', 'pat'],
+            'ebitda':  ['operating profit', 'ebitda', 'pbdit'],
+        }, max_cols=6)
 
-                for row in table.find_all('tr'):
-                    cells = row.find_all('td')
-                    if not cells:
-                        continue
-                    label = cells[0].get_text(strip=True).lower()
-                    values = [_parse_number(c.get_text(strip=True)) for c in cells[1:]]
-                    values = values[-5:]  # Last 5 years
+        # derive scalar values from latest year
+        for src_key, dest_key in [('revenue', 'revenue'), ('profit', 'net_profit')]:
+            valid = [v for v in income[src_key] if v is not None]
+            if valid and dest_key not in data:
+                data[dest_key] = valid[-1]
 
-                    if 'sales' in label or 'revenue' in label:
-                        income_data['revenue'] = values
-                        # Set latest revenue
-                        valid = [v for v in values if v is not None]
-                        if valid:
-                            data['revenue'] = valid[-1]
-                    elif 'net profit' in label:
-                        income_data['profit'] = values
-                        valid = [v for v in values if v is not None]
-                        if valid:
-                            data['net_profit'] = valid[-1]
-                    elif 'operating profit' in label or 'ebitda' in label:
-                        income_data['ebitda'] = values
+        data['income_statement'] = income
 
-        data['income_statement'] = income_data
+        # ── Balance Sheet ─────────────────────────────────────────────────────
+        bs = parse_table('balance-sheet', {
+            'assets':      ['total assets'],
+            'liabilities': ['total liabilities', 'borrowings', 'total debt'],
+            'equity':      ['equity', "shareholders' funds", "shareholders' equity", 'net worth'],
+        }, max_cols=6)
 
-        # Balance Sheet
-        bs_data = {"years": [], "assets": [], "liabilities": [], "equity": []}
-        bs_section = soup.find('section', id='balance-sheet')
-        if bs_section:
-            table = bs_section.find('table')
-            if table:
-                headers_row = table.find('thead')
-                if headers_row:
-                    years = [th.get_text(strip=True) for th in headers_row.find_all('th')][1:]
-                    bs_data['years'] = years[-5:]
+        for src_key, dest_key in [('assets','total_assets'),('liabilities','total_liabilities'),('equity','equity')]:
+            valid = [v for v in bs[src_key] if v is not None]
+            if valid and dest_key not in data:
+                data[dest_key] = valid[-1]
 
-                for row in table.find_all('tr'):
-                    cells = row.find_all('td')
-                    if not cells:
-                        continue
-                    label = cells[0].get_text(strip=True).lower()
-                    values = [_parse_number(c.get_text(strip=True)) for c in cells[1:]]
-                    values = values[-5:]
+        data['balance_sheet'] = bs
 
-                    if 'total assets' in label:
-                        bs_data['assets'] = values
-                        valid = [v for v in values if v is not None]
-                        if valid:
-                            data['total_assets'] = valid[-1]
-                    elif 'total liabilities' in label or 'borrowings' in label:
-                        bs_data['liabilities'] = values
-                        valid = [v for v in values if v is not None]
-                        if valid:
-                            data['total_liabilities'] = valid[-1]
-                    elif 'equity' in label or "shareholders' funds" in label:
-                        bs_data['equity'] = values
-                        valid = [v for v in values if v is not None]
-                        if valid:
-                            data['equity'] = valid[-1]
+        # ── Quarterly Results ─────────────────────────────────────────────────
+        quarterly = parse_table('quarters', {
+            'revenue': ['sales', 'revenue', 'net sales'],
+            'profit':  ['net profit', 'pat'],
+        }, max_cols=8)
+        data['quarterly_results'] = quarterly
 
-        data['balance_sheet'] = bs_data
-
-        # Quarterly results
-        quarterly_data = {"quarters": [], "revenue": [], "profit": []}
-        q_section = soup.find('section', id='quarters')
-        if q_section:
-            table = q_section.find('table')
-            if table:
-                headers_row = table.find('thead')
-                if headers_row:
-                    quarters = [th.get_text(strip=True) for th in headers_row.find_all('th')][1:]
-                    quarterly_data['quarters'] = quarters[-8:]
-
-                for row in table.find_all('tr'):
-                    cells = row.find_all('td')
-                    if not cells:
-                        continue
-                    label = cells[0].get_text(strip=True).lower()
-                    values = [_parse_number(c.get_text(strip=True)) for c in cells[1:]]
-                    values = values[-8:]
-                    if 'sales' in label or 'revenue' in label:
-                        quarterly_data['revenue'] = values
-                    elif 'net profit' in label:
-                        quarterly_data['profit'] = values
-
-        data['quarterly_results'] = quarterly_data
-
-        # BSE/NSE codes from page
-        bse_nse = soup.find('div', class_='company-links') or soup.find('div', id='company-links')
-        if bse_nse:
-            links_text = bse_nse.get_text()
-            if 'NSE' in links_text:
-                data['exchange'] = 'NSE'
-            elif 'BSE' in links_text:
-                data['exchange'] = 'BSE'
+        # ── Exchange ──────────────────────────────────────────────────────────
+        page_text = soup.get_text()
+        data['exchange'] = 'BSE' if 'BSE:' in page_text else 'NSE'
 
         data['ticker'] = ticker.upper()
         data['is_listed'] = True
@@ -339,7 +299,7 @@ def fetch_screener_data(ticker: str) -> dict:
         return data
 
     except ImportError:
-        return {"error": "BeautifulSoup4 not installed. Run: pip install beautifulsoup4 requests"}
+        return {"error": "beautifulsoup4 / requests not installed on server."}
     except Exception as e:
         return {"error": f"Scraping failed: {str(e)}"}
 
@@ -421,6 +381,40 @@ Provide a comprehensive risk and growth analysis. Return JSON with exactly this 
         }
 
 # ── Routes ────────────────────────────────────────────────────────────────────
+
+@router.get("/search-suggestions")
+def search_suggestions(q: str = Query("", min_length=1)):
+    """Proxy Screener.in company search for autocomplete suggestions."""
+    if not q or len(q.strip()) < 1:
+        return []
+    try:
+        import requests
+        resp = requests.get(
+            "https://www.screener.in/api/company/search/",
+            params={"q": q.strip(), "v": "3", "fts": "1"},
+            headers={"User-Agent": "Mozilla/5.0", "Accept": "application/json"},
+            timeout=8,
+        )
+        if resp.status_code != 200:
+            return []
+        results = resp.json()
+        # Extract ticker from url: /company/TICKER/consolidated/ or /company/TICKER/
+        out = []
+        for item in results[:12]:
+            url = item.get("url", "")
+            parts = [p for p in url.split("/") if p]
+            ticker = parts[1] if len(parts) >= 2 else ""
+            # Skip the "Search everywhere" catch-all result
+            if not ticker or ticker.startswith("?") or "full-text-search" in url:
+                continue
+            out.append({
+                "name":   item.get("name", ""),
+                "ticker": ticker.upper(),
+                "url":    url,
+            })
+        return out[:8]
+    except Exception:
+        return []
 
 @router.get("/")
 def list_companies(
