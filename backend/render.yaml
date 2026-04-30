@@ -21,3 +21,5 @@ services:
         value: sqlite:///./riskiq.db
       - key: PYTHON_VERSION
         value: "3.11.0"
+      - key: ALLOWED_ORIGINS
+        value: "https://riskiq-platform-644.netlify.app,http://localhost:5173"
