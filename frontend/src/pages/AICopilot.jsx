@@ -1,369 +1,444 @@
-import React, { useState, useRef, useEffect, useCallback } from 'react'
+import React, { useState, useEffect, useRef, useCallback } from 'react'
 import {
-  Bot, Send, RefreshCw, Sparkles, User, Copy, ThumbsUp,
-  ThumbsDown, AlertTriangle, Shield, TrendingUp, FileText,
-  ChevronRight, Lightbulb, X, Plus, Trash2, MessageSquare
+  Sparkles, Send, Plus, Trash2, Copy, Check, RefreshCw,
+  Brain, BookOpen, TrendingUp, Shield, AlertTriangle,
+  Database, Wifi, WifiOff, MessageSquare,
+  BarChart3, Lock, Layers, Activity, FileText
 } from 'lucide-react'
-import { aiAPI, risksAPI } from '../lib/api'
+import { aiAPI, risksAPI, assessmentsAPI } from '../lib/api'
+import useAuthStore from '../store/authStore'
 
+// ─── Persist conversations to localStorage ────────────────────────────────────
+const STORAGE_KEY = 'riskiq_copilot_v2'
+const loadConversations = () => {
+  try { return JSON.parse(localStorage.getItem(STORAGE_KEY) || 'null') }
+  catch { return null }
+}
+const saveConversations = (data) => {
+  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(data)) }
+  catch {}
+}
+
+// ─── Suggested prompts ────────────────────────────────────────────────────────
 const SUGGESTED_PROMPTS = [
-  { icon: AlertTriangle, label: 'Top Risks Analysis',     color: 'text-red-400',     prompt: 'Analyze my top 5 risks and provide a prioritized action plan.' },
-  { icon: Shield,        label: 'Mitigation Strategy',    color: 'text-indigo-400',  prompt: 'Suggest mitigation strategies for my highest severity risks.' },
-  { icon: TrendingUp,    label: 'Risk Trend Insights',    color: 'text-blue-400',    prompt: 'What risk trends should I be monitoring based on my current risk profile?' },
-  { icon: FileText,      label: 'Executive Summary',      color: 'text-emerald-400', prompt: 'Generate an executive summary of our current risk posture for board presentation.' },
-  { icon: Lightbulb,     label: 'Compliance Gaps',        color: 'text-amber-400',   prompt: 'Identify potential compliance gaps in my risk register.' },
-  { icon: Sparkles,      label: 'Industry Benchmarks',    color: 'text-violet-400',  prompt: 'How does my risk profile compare to industry benchmarks?' },
+  { icon: Shield,       label: 'Basel III Explained',     prompt: 'Explain Basel III capital requirements and what CET1, Tier 1, and Total Capital ratios mean for Indian banks.' },
+  { icon: TrendingUp,   label: 'NPA Risk Analysis',       prompt: 'What are the key NPA risk indicators for an NBFC and how should I design an early warning system?' },
+  { icon: Brain,        label: 'Risk Appetite Statement', prompt: 'Help me write a Risk Appetite Statement for a mid-size fintech company operating in India.' },
+  { icon: BarChart3,    label: 'KRI Design',              prompt: 'Design KRIs for a B2B SaaS company — include thresholds, escalation rules, and dashboard metrics.' },
+  { icon: Lock,         label: 'Cyber Risk Assessment',   prompt: 'What is a comprehensive cybersecurity risk assessment framework for a financial institution? Include RBI & SEBI requirements.' },
+  { icon: Layers,       label: 'COSO vs ISO 31000',       prompt: 'Compare COSO ERM 2017 and ISO 31000:2018 — when should I use each framework?' },
+  { icon: AlertTriangle,label: 'Supply Chain Risk',       prompt: 'What are the top supply chain risks for a manufacturing company and what mitigation playbook should I use?' },
+  { icon: Activity,     label: 'Stress Testing',          prompt: 'Explain how to design a credit risk stress testing framework for an SME lending portfolio.' },
+  { icon: FileText,     label: 'SEBI Compliance',         prompt: 'What are the key SEBI risk management requirements for a listed company in India? Include LODR and BRSR.' },
+  { icon: BookOpen,     label: 'VaR Calculation',         prompt: 'How do I calculate Value at Risk (VaR) using historical simulation? Show me steps and interpretation.' },
 ]
 
-function TypingIndicator() {
+// ─── Sources badge ────────────────────────────────────────────────────────────
+function SourceBadge({ sources }) {
+  if (!sources?.length) return null
   return (
-    <div className="flex items-end gap-3">
-      <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-indigo-500 to-violet-600 flex items-center justify-center flex-shrink-0">
-        <Bot className="w-4 h-4 text-white" />
-      </div>
-      <div className="bg-white/[0.04] border border-white/[0.06] rounded-2xl rounded-bl-sm px-4 py-3">
-        <div className="flex items-center gap-1.5">
-          {[0, 1, 2].map(i => (
-            <span
-              key={i}
-              className="w-1.5 h-1.5 bg-indigo-400 rounded-full animate-bounce"
-              style={{ animationDelay: `${i * 0.15}s` }}
-            />
-          ))}
-        </div>
-      </div>
+    <div className="flex flex-wrap gap-1 mt-2">
+      {sources.map((s, i) => (
+        <span key={i} className="inline-flex items-center gap-1 px-2 py-0.5 bg-indigo-500/10 border border-indigo-500/20 rounded-full text-[10px] text-indigo-400">
+          <BookOpen className="w-2.5 h-2.5" />{s}
+        </span>
+      ))}
     </div>
   )
 }
 
-function MessageBubble({ msg, onCopy, onReact }) {
+// ─── Format AI response text ──────────────────────────────────────────────────
+function FormattedText({ text }) {
+  const lines = (text || '').split('\n')
+  return (
+    <div className="space-y-1">
+      {lines.map((line, i) => {
+        if (!line.trim()) return <div key={i} className="h-1" />
+        if (line.startsWith('### ')) return <h4 key={i} className="text-sm font-bold text-white mt-3 mb-1">{line.slice(4)}</h4>
+        if (line.startsWith('## '))  return <h3 key={i} className="text-base font-bold text-white mt-4 mb-1">{line.slice(3)}</h3>
+        if (line.startsWith('# '))   return <h2 key={i} className="text-lg font-bold text-white mt-4 mb-2">{line.slice(2)}</h2>
+        if (line.startsWith('| '))   return <div key={i} className="font-mono text-[11px] bg-[#0d1728] px-3 py-1 border-b border-white/[0.05]">{line}</div>
+
+        // Split by bold (**text**) and inline code (`text`)
+        const parts = line.split(/(\*\*[^*]+\*\*|`[^`]+`)/g)
+        const isListItem = line.startsWith('• ') || line.startsWith('- ')
+        const content = parts.map((part, j) => {
+          if (part.startsWith('**') && part.endsWith('**'))
+            return <strong key={j} className="font-semibold text-white">{part.slice(2, -2)}</strong>
+          if (part.startsWith('`') && part.endsWith('`'))
+            return <code key={j} className="px-1.5 py-0.5 bg-[#1a2640] rounded text-indigo-300 text-[0.85em] font-mono">{part.slice(1, -1)}</code>
+          return part
+        })
+
+        if (isListItem) return (
+          <div key={i} className="flex gap-1.5 items-start">
+            <span className="text-indigo-400 mt-0.5 flex-shrink-0">•</span>
+            <p className="leading-relaxed">{content.slice(1)}</p>
+          </div>
+        )
+        return <p key={i} className="leading-relaxed">{content}</p>
+      })}
+    </div>
+  )
+}
+
+// ─── Message bubble ───────────────────────────────────────────────────────────
+function MessageBubble({ msg }) {
   const [copied, setCopied] = useState(false)
   const isUser = msg.role === 'user'
 
   const handleCopy = () => {
-    navigator.clipboard.writeText(msg.content)
+    navigator.clipboard?.writeText(msg.content)
     setCopied(true)
     setTimeout(() => setCopied(false), 1500)
-    onCopy?.()
   }
 
   return (
-    <div className={`flex items-end gap-3 group ${isUser ? 'flex-row-reverse' : ''}`}>
-      {/* Avatar */}
-      <div className={`w-8 h-8 rounded-xl flex items-center justify-center flex-shrink-0 ${
-        isUser ? 'bg-gradient-to-br from-slate-600 to-slate-700' : 'bg-gradient-to-br from-indigo-500 to-violet-600'
-      }`}>
-        {isUser ? <User className="w-4 h-4 text-white" /> : <Bot className="w-4 h-4 text-white" />}
-      </div>
+    <div className={`flex gap-3 ${isUser ? 'flex-row-reverse' : 'flex-row'} items-start group`}>
+      {!isUser && (
+        <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-indigo-500 to-violet-600 flex items-center justify-center flex-shrink-0 mt-0.5 shadow-lg shadow-indigo-500/20">
+          <Sparkles className="w-4 h-4 text-white" />
+        </div>
+      )}
+      {isUser && (
+        <div className="w-8 h-8 rounded-xl bg-white/[0.08] border border-white/[0.08] flex items-center justify-center flex-shrink-0 mt-0.5">
+          <span className="text-[10px] font-bold text-slate-300">You</span>
+        </div>
+      )}
 
-      <div className={`flex flex-col max-w-[80%] ${isUser ? 'items-end' : 'items-start'}`}>
-        <div className={`px-4 py-3 rounded-2xl text-sm leading-relaxed whitespace-pre-wrap ${
+      <div className={`max-w-[80%] flex flex-col ${isUser ? 'items-end' : 'items-start'}`}>
+        <div className={`px-4 py-3 rounded-2xl text-sm leading-relaxed ${
           isUser
-            ? 'bg-indigo-500 text-white rounded-br-sm'
-            : 'bg-white/[0.04] border border-white/[0.06] text-slate-200 rounded-bl-sm'
+            ? 'bg-indigo-600/90 text-white rounded-tr-sm'
+            : 'bg-white/[0.04] border border-white/[0.08] text-slate-300 rounded-tl-sm'
         }`}>
-          {msg.content}
+          {isUser ? <p>{msg.content}</p> : <FormattedText text={msg.content} />}
         </div>
 
-        {/* Actions row */}
-        <div className={`flex items-center gap-1.5 mt-1.5 opacity-0 group-hover:opacity-100 transition-opacity ${isUser ? 'flex-row-reverse' : ''}`}>
-          <span className="text-[10px] text-slate-600">{msg.time}</span>
-          {!isUser && (
-            <>
-              <button onClick={handleCopy} className="w-5 h-5 rounded flex items-center justify-center text-slate-600 hover:text-slate-300 transition-colors">
-                <Copy className="w-3 h-3" />
-              </button>
-              <button onClick={() => onReact?.(msg.id, 'up')} className={`w-5 h-5 rounded flex items-center justify-center transition-colors ${msg.reaction === 'up' ? 'text-emerald-400' : 'text-slate-600 hover:text-slate-300'}`}>
-                <ThumbsUp className="w-3 h-3" />
-              </button>
-              <button onClick={() => onReact?.(msg.id, 'down')} className={`w-5 h-5 rounded flex items-center justify-center transition-colors ${msg.reaction === 'down' ? 'text-red-400' : 'text-slate-600 hover:text-slate-300'}`}>
-                <ThumbsDown className="w-3 h-3" />
-              </button>
-            </>
-          )}
-        </div>
+        {msg.sources && <SourceBadge sources={msg.sources} />}
+
+        {!isUser && (
+          <button
+            onClick={handleCopy}
+            className="mt-1.5 ml-1 opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1 text-[10px] text-slate-600 hover:text-slate-400"
+          >
+            {copied ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
+            {copied ? 'Copied' : 'Copy'}
+          </button>
+        )}
+
+        <span className="text-[10px] text-slate-700 mt-1 px-1">
+          {new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+        </span>
       </div>
     </div>
   )
 }
 
-const WELCOME_MSG = {
-  id: 'welcome',
-  role: 'assistant',
-  content: `Hello! I'm your AI Risk Copilot. 👋
-
-I can help you analyze your risk portfolio, suggest mitigation strategies, identify compliance gaps, generate executive summaries, and much more.
-
-You can ask me about your specific risks, request industry benchmarks, or use one of the suggested prompts below to get started.
-
-What would you like to explore today?`,
-  time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+function TypingIndicator() {
+  return (
+    <div className="flex gap-3 items-start">
+      <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-indigo-500 to-violet-600 flex items-center justify-center flex-shrink-0">
+        <Sparkles className="w-4 h-4 text-white" />
+      </div>
+      <div className="px-4 py-3 rounded-2xl rounded-tl-sm bg-white/[0.04] border border-white/[0.08] flex items-center gap-2">
+        {[0, 1, 2].map(i => (
+          <div key={i} className="w-1.5 h-1.5 rounded-full bg-indigo-400 animate-bounce"
+            style={{ animationDelay: `${i * 150}ms` }} />
+        ))}
+        <span className="text-xs text-slate-500 ml-1">Analyzing with RiskIQ knowledge base...</span>
+      </div>
+    </div>
+  )
 }
 
-const CONVERSATIONS_KEY = 'riskiq_conversations'
-
-function loadConversations() {
-  try {
-    return JSON.parse(localStorage.getItem(CONVERSATIONS_KEY) || '[]')
-  } catch { return [] }
+function KBStatusPill({ status }) {
+  if (!status) return null
+  const loaded = status.status === 'loaded'
+  return (
+    <div className={`flex items-center gap-1.5 px-2 py-1 rounded-full text-[10px] font-medium ${
+      loaded ? 'bg-emerald-500/10 text-emerald-400' : 'bg-amber-500/10 text-amber-400'
+    }`}>
+      {loaded ? <Wifi className="w-3 h-3" /> : <WifiOff className="w-3 h-3" />}
+      {loaded
+        ? `KB loaded · ${status.age_minutes}m ago · ${Math.round((status.total_chars || 0) / 1000)}K chars`
+        : 'Knowledge base loading...'}
+    </div>
+  )
 }
 
-function saveConversations(convs) {
-  localStorage.setItem(CONVERSATIONS_KEY, JSON.stringify(convs))
-}
-
+// ─── Main ─────────────────────────────────────────────────────────────────────
 export default function AICopilot() {
+  const { user } = useAuthStore()
+
   const [conversations, setConversations] = useState(() => {
     const saved = loadConversations()
-    if (saved.length === 0) {
-      const initial = [{ id: 'default', title: 'New Conversation', messages: [WELCOME_MSG], createdAt: Date.now() }]
-      saveConversations(initial)
-      return initial
-    }
-    return saved
+    if (saved?.conversations?.length) return saved.conversations
+    return [{ id: Date.now(), title: 'New Chat', messages: [] }]
   })
-  const [activeConvId, setActiveConvId] = useState(() => {
+  const [activeCid, setActiveCid] = useState(() => {
     const saved = loadConversations()
-    return saved[0]?.id || 'default'
+    return saved?.activeCid || (saved?.conversations?.[0]?.id ?? Date.now())
   })
+
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
-  const [risks, setRisks] = useState([])
-  const [sidebarOpen, setSidebarOpen] = useState(true)
+  const [kbStatus, setKbStatus] = useState(null)
+  const [refreshingKb, setRefreshingKb] = useState(false)
+  const [userContext, setUserContext] = useState(null)
 
-  const messagesEndRef = useRef(null)
-  const textareaRef    = useRef(null)
+  const bottomRef = useRef(null)
+  const textareaRef = useRef(null)
 
-  const activeConv = conversations.find(c => c.id === activeConvId)
-  const messages   = activeConv?.messages || [WELCOME_MSG]
-
-  useEffect(() => {
-    risksAPI.list().then(r => setRisks(r.data || [])).catch(() => {})
-  }, [])
+  const activeConv = conversations.find(c => c.id === activeCid) || conversations[0]
 
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [messages, loading])
+    saveConversations({ conversations, activeCid })
+  }, [conversations, activeCid])
 
-  const updateConversation = useCallback((convId, updater) => {
-    setConversations(prev => {
-      const updated = prev.map(c => c.id === convId ? updater(c) : c)
-      saveConversations(updated)
-      return updated
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
+  }, [activeConv?.messages?.length, loading])
+
+  useEffect(() => {
+    aiAPI.copilotKbStatus().then(r => setKbStatus(r.data)).catch(() => {})
+    Promise.all([
+      risksAPI.list().catch(() => ({ data: [] })),
+      assessmentsAPI.list().catch(() => ({ data: [] })),
+    ]).then(([risksResp, assessResp]) => {
+      const risks = Array.isArray(risksResp.data) ? risksResp.data : risksResp.data?.risks || []
+      const assessments = Array.isArray(assessResp.data) ? assessResp.data : []
+      setUserContext({ risks: risks.slice(0, 20), assessments: assessments.slice(0, 5), organization: user || {} })
     })
   }, [])
 
-  const sendMessage = async (text) => {
-    const trimmed = (text || input).trim()
-    if (!trimmed || loading) return
-
-    const userMsg = {
-      id: `u-${Date.now()}`,
-      role: 'user',
-      content: trimmed,
-      time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-    }
-
-    updateConversation(activeConvId, c => ({
-      ...c,
-      title: c.messages.length <= 1 ? trimmed.slice(0, 40) : c.title,
-      messages: [...c.messages, userMsg],
-    }))
+  const send = useCallback(async (overrideText) => {
+    const text = (overrideText || input).trim()
+    if (!text || loading) return
     setInput('')
+
+    const userMsg = { role: 'user', content: text, timestamp: Date.now() }
+
+    setConversations(prev => prev.map(c => {
+      if (c.id !== activeCid) return c
+      return {
+        ...c,
+        messages: [...c.messages, userMsg],
+        title: c.messages.length === 0 ? text.slice(0, 40) : c.title,
+      }
+    }))
+
     setLoading(true)
-
     try {
-      // Build context from risks
-      const riskContext = risks.slice(0, 10).map(r =>
-        `- ${r.name} (${r.category}, ${r.severity} severity, score ${r.score})`
-      ).join('\n')
+      const conv = conversations.find(c => c.id === activeCid)
+      const history = [...(conv?.messages || []), userMsg].map(m => ({ role: m.role, content: m.content }))
 
-      const fullPrompt = risks.length > 0
-        ? `Context — current risk portfolio:\n${riskContext}\n\nUser question: ${trimmed}`
-        : trimmed
+      const resp = await aiAPI.copilot({ messages: history, context: userContext })
 
-      const res = await aiAPI.analyze({ prompt: fullPrompt, type: 'copilot' })
-      const reply = res.data?.analysis || res.data?.result || res.data?.response || 'I analyzed your request. Based on your risk profile, I recommend reviewing your highest-severity risks first and ensuring mitigation plans are up to date.'
-
-      const aiMsg = {
-        id: `a-${Date.now()}`,
+      const assistantMsg = {
         role: 'assistant',
-        content: reply,
-        time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        content: resp.data.reply,
+        sources: resp.data.sources,
+        timestamp: Date.now(),
       }
-      updateConversation(activeConvId, c => ({ ...c, messages: [...c.messages, aiMsg] }))
-    } catch (err) {
-      const errorMsg = {
-        id: `e-${Date.now()}`,
+
+      setConversations(prev => prev.map(c => {
+        if (c.id !== activeCid) return c
+        // avoid duplicates
+        const has = c.messages.some(m => m.timestamp === assistantMsg.timestamp)
+        if (has) return c
+        return { ...c, messages: [...c.messages, assistantMsg] }
+      }))
+    } catch {
+      const errMsg = {
         role: 'assistant',
-        content: err?.response?.status === 429
-          ? '⚠️ Rate limit reached. Please wait a moment before sending another message.'
-          : '⚠️ I encountered an error processing your request. Please check your connection and try again.',
-        time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        content: '⚠️ Connection error. The backend may be waking up (Render free tier sleeps after 15 min inactivity). Wait 30 seconds and retry.',
+        timestamp: Date.now(),
       }
-      updateConversation(activeConvId, c => ({ ...c, messages: [...c.messages, errorMsg] }))
+      setConversations(prev => prev.map(c => c.id !== activeCid ? c : { ...c, messages: [...c.messages, errMsg] }))
     } finally {
       setLoading(false)
     }
+  }, [input, loading, activeCid, conversations, userContext])
+
+  const handleKey = (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send() }
   }
 
-  const handleKeyDown = (e) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault()
-      sendMessage()
-    }
+  const newChat = () => {
+    const id = Date.now()
+    setConversations(prev => [{ id, title: 'New Chat', messages: [] }, ...prev])
+    setActiveCid(id)
   }
 
-  const newConversation = () => {
-    const conv = { id: `conv-${Date.now()}`, title: 'New Conversation', messages: [WELCOME_MSG], createdAt: Date.now() }
+  const deleteChat = (cid, e) => {
+    e.stopPropagation()
     setConversations(prev => {
-      const updated = [conv, ...prev]
-      saveConversations(updated)
-      return updated
-    })
-    setActiveConvId(conv.id)
-  }
-
-  const deleteConversation = (id) => {
-    setConversations(prev => {
-      const updated = prev.filter(c => c.id !== id)
-      if (updated.length === 0) {
-        const fresh = [{ id: 'default', title: 'New Conversation', messages: [WELCOME_MSG], createdAt: Date.now() }]
-        saveConversations(fresh)
-        setActiveConvId('default')
-        return fresh
+      const remaining = prev.filter(c => c.id !== cid)
+      if (!remaining.length) {
+        const id = Date.now()
+        setActiveCid(id)
+        return [{ id, title: 'New Chat', messages: [] }]
       }
-      saveConversations(updated)
-      if (activeConvId === id) setActiveConvId(updated[0].id)
-      return updated
+      if (activeCid === cid) setActiveCid(remaining[0].id)
+      return remaining
     })
   }
 
-  const handleReact = (msgId, reaction) => {
-    updateConversation(activeConvId, c => ({
-      ...c,
-      messages: c.messages.map(m => m.id === msgId ? { ...m, reaction: m.reaction === reaction ? null : reaction } : m),
-    }))
+  const refreshKb = async () => {
+    setRefreshingKb(true)
+    try {
+      await aiAPI.copilotRefreshKb()
+      const s = await aiAPI.copilotKbStatus()
+      setKbStatus(s.data)
+    } catch {}
+    setRefreshingKb(false)
   }
 
-  const clearConversation = () => {
-    updateConversation(activeConvId, c => ({ ...c, messages: [WELCOME_MSG], title: 'New Conversation' }))
-  }
+  const showSuggestions = !activeConv?.messages?.length
 
   return (
-    <div className="flex h-[calc(100vh-8rem)] gap-4 animate-fade-up">
-      {/* Conversation History Sidebar */}
-      {sidebarOpen && (
-        <div className="w-56 flex-shrink-0 flex flex-col card overflow-hidden">
-          <div className="flex items-center justify-between px-3 py-3 border-b border-white/[0.06]">
-            <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Chats</span>
-            <button onClick={newConversation} className="w-6 h-6 rounded-lg flex items-center justify-center text-slate-500 hover:text-white hover:bg-white/[0.07] transition-all" title="New chat">
-              <Plus className="w-3.5 h-3.5" />
-            </button>
-          </div>
-          <div className="flex-1 overflow-y-auto py-2 px-2 space-y-0.5">
-            {conversations.map(c => (
-              <div key={c.id}
-                className={`group flex items-center gap-2 px-2.5 py-2 rounded-xl cursor-pointer transition-all ${activeConvId === c.id ? 'bg-indigo-500/15 border border-indigo-500/20' : 'hover:bg-white/[0.04]'}`}
-                onClick={() => setActiveConvId(c.id)}>
-                <MessageSquare className={`w-3.5 h-3.5 flex-shrink-0 ${activeConvId === c.id ? 'text-indigo-400' : 'text-slate-600'}`} />
-                <span className="text-xs text-slate-300 truncate flex-1">{c.title}</span>
-                <button
-                  onClick={e => { e.stopPropagation(); deleteConversation(c.id) }}
-                  className="w-5 h-5 rounded flex items-center justify-center text-slate-600 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-all flex-shrink-0">
-                  <Trash2 className="w-3 h-3" />
-                </button>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
+    <div className="flex h-[calc(100vh-4rem)] bg-[#060b18]">
 
-      {/* Main Chat Area */}
-      <div className="flex-1 flex flex-col card overflow-hidden">
-        {/* Top bar */}
-        <div className="flex items-center justify-between px-5 py-3.5 border-b border-white/[0.06] flex-shrink-0">
-          <div className="flex items-center gap-3">
-            <button onClick={() => setSidebarOpen(v => !v)} className="w-7 h-7 rounded-lg flex items-center justify-center text-slate-500 hover:text-white hover:bg-white/[0.07] transition-all">
-              <MessageSquare className="w-3.5 h-3.5" />
-            </button>
-            <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-indigo-500 to-violet-600 flex items-center justify-center shadow-lg shadow-indigo-500/25">
-              <Bot className="w-4 h-4 text-white" />
+      {/* Sidebar */}
+      <div className="w-64 flex-shrink-0 border-r border-white/[0.06] flex flex-col bg-[#07101f]">
+        <div className="p-4 border-b border-white/[0.06]">
+          <div className="flex items-center gap-2.5 mb-4">
+            <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-indigo-500 to-violet-600 flex items-center justify-center">
+              <Sparkles className="w-4 h-4 text-white" />
             </div>
             <div>
-              <p className="text-sm font-semibold text-white">AI Risk Copilot</p>
-              <div className="flex items-center gap-1.5">
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                <span className="text-[10px] text-emerald-400">Online · Powered by Anthropic Claude</span>
-              </div>
+              <p className="text-sm font-bold text-white">RiskIQ Copilot</p>
+              <p className="text-[10px] text-slate-500">Risk Intelligence AI</p>
             </div>
           </div>
-          <div className="flex items-center gap-2">
-            {risks.length > 0 && (
-              <span className="text-[10px] font-medium text-slate-500 bg-white/[0.04] border border-white/[0.06] px-2.5 py-1 rounded-full">
-                {risks.length} risks in context
+          <button onClick={newChat}
+            className="w-full flex items-center justify-center gap-2 px-3 py-2 bg-indigo-600 hover:bg-indigo-500 rounded-xl text-xs font-medium text-white transition-colors">
+            <Plus className="w-3.5 h-3.5" />New Chat
+          </button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto py-2 space-y-0.5 px-2">
+          {conversations.map(conv => (
+            <button key={conv.id} onClick={() => setActiveCid(conv.id)}
+              className={`w-full text-left px-3 py-2.5 rounded-xl text-xs transition-all group flex items-center justify-between gap-2 ${
+                conv.id === activeCid
+                  ? 'bg-indigo-500/15 text-white border border-indigo-500/20'
+                  : 'text-slate-400 hover:bg-white/[0.04] hover:text-slate-300'
+              }`}>
+              <span className="truncate flex items-center gap-1.5">
+                <MessageSquare className="w-3 h-3 flex-shrink-0 opacity-60" />
+                {conv.title}
               </span>
-            )}
-            <button onClick={clearConversation} className="btn-ghost text-xs" title="Clear conversation">
-              <RefreshCw className="w-3.5 h-3.5" />Clear
+              <button onClick={(e) => deleteChat(conv.id, e)}
+                className="opacity-0 group-hover:opacity-100 hover:text-red-400 transition-all flex-shrink-0">
+                <Trash2 className="w-3 h-3" />
+              </button>
             </button>
+          ))}
+        </div>
+
+        <div className="p-3 border-t border-white/[0.06] space-y-2">
+          <KBStatusPill status={kbStatus} />
+          <button onClick={refreshKb} disabled={refreshingKb}
+            className="w-full flex items-center justify-center gap-1.5 px-3 py-1.5 bg-white/[0.04] hover:bg-white/[0.07] border border-white/[0.06] rounded-lg text-[10px] text-slate-400 hover:text-slate-300 transition-all disabled:opacity-50">
+            <RefreshCw className={`w-3 h-3 ${refreshingKb ? 'animate-spin' : ''}`} />
+            {refreshingKb ? 'Refreshing...' : 'Refresh Knowledge Base'}
+          </button>
+          <div className="flex items-start gap-1.5 px-1">
+            <Database className="w-3 h-3 text-slate-600 mt-0.5 flex-shrink-0" />
+            <p className="text-[9px] text-slate-600 leading-tight">
+              ISO 31000 · COSO ERM · Basel III/IV · SEBI · RBI · Wikipedia Risk Articles · KRI Benchmarks
+            </p>
           </div>
+        </div>
+      </div>
+
+      {/* Main chat */}
+      <div className="flex-1 flex flex-col min-w-0">
+        <div className="px-6 py-3 border-b border-white/[0.06] flex items-center justify-between bg-[#07101f]/50">
+          <div>
+            <h1 className="text-sm font-bold text-white">{activeConv?.title || 'RiskIQ Copilot'}</h1>
+            <p className="text-[10px] text-slate-500">
+              {activeConv?.messages?.length || 0} messages · Risk management, finance & regulatory expertise
+            </p>
+          </div>
+          {userContext?.risks?.length > 0 && (
+            <div className="flex items-center gap-1.5 px-2.5 py-1 bg-violet-500/10 border border-violet-500/20 rounded-lg">
+              <Activity className="w-3 h-3 text-violet-400" />
+              <span className="text-[10px] text-violet-400">{userContext.risks.length} risks in context</span>
+            </div>
+          )}
         </div>
 
         {/* Messages */}
-        <div className="flex-1 overflow-y-auto px-5 py-5 space-y-5">
-          {messages.map(msg => (
-            <MessageBubble key={msg.id} msg={msg} onReact={handleReact} />
-          ))}
-          {loading && <TypingIndicator />}
-          <div ref={messagesEndRef} />
+        <div className="flex-1 overflow-y-auto px-6 py-6 space-y-5">
+          {showSuggestions ? (
+            <div className="max-w-3xl mx-auto">
+              <div className="text-center mb-8">
+                <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-indigo-500 to-violet-600 flex items-center justify-center mx-auto mb-4 shadow-lg shadow-indigo-500/30">
+                  <Sparkles className="w-8 h-8 text-white" />
+                </div>
+                <h2 className="text-2xl font-bold text-white mb-2">RiskIQ Copilot</h2>
+                <p className="text-slate-400 text-sm max-w-md mx-auto">
+                  AI-powered risk expert trained on ISO 31000, COSO ERM, Basel III/IV, SEBI & RBI guidelines, KRI benchmarks, and live internet data.
+                </p>
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                {SUGGESTED_PROMPTS.map((p, i) => {
+                  const Icon = p.icon
+                  return (
+                    <button key={i} onClick={() => send(p.prompt)}
+                      className="text-left p-3 bg-white/[0.03] hover:bg-white/[0.06] border border-white/[0.07] hover:border-indigo-500/30 rounded-xl transition-all group">
+                      <div className="flex items-center gap-2 mb-1">
+                        <Icon className="w-3.5 h-3.5 text-indigo-400 group-hover:text-indigo-300" />
+                        <span className="text-xs font-semibold text-slate-300 group-hover:text-white">{p.label}</span>
+                      </div>
+                      <p className="text-[10px] text-slate-600 group-hover:text-slate-500 line-clamp-2">{p.prompt}</p>
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+          ) : (
+            <div className="max-w-3xl mx-auto space-y-5">
+              {activeConv?.messages?.map((msg, i) => (
+                <MessageBubble key={`${msg.timestamp}-${i}`} msg={msg} />
+              ))}
+              {loading && <TypingIndicator />}
+            </div>
+          )}
+          <div ref={bottomRef} />
         </div>
 
-        {/* Suggested Prompts — show only when few messages */}
-        {messages.length <= 2 && !loading && (
-          <div className="px-5 pb-3 flex-shrink-0">
-            <p className="text-[10px] font-semibold text-slate-600 uppercase tracking-wider mb-2">Suggested</p>
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-              {SUGGESTED_PROMPTS.map(sp => (
-                <button key={sp.label} onClick={() => sendMessage(sp.prompt)}
-                  className="flex items-center gap-2 px-3 py-2.5 rounded-xl bg-white/[0.03] border border-white/[0.06] hover:border-white/[0.12] hover:bg-white/[0.06] transition-all text-left group">
-                  <sp.icon className={`w-3.5 h-3.5 flex-shrink-0 ${sp.color}`} />
-                  <span className="text-xs text-slate-400 group-hover:text-slate-200 transition-colors leading-snug">{sp.label}</span>
-                </button>
-              ))}
-            </div>
-          </div>
-        )}
-
         {/* Input */}
-        <div className="px-4 pb-4 flex-shrink-0">
-          <div className="flex items-end gap-2 bg-white/[0.04] border border-white/[0.08] rounded-2xl p-2 focus-within:border-indigo-500/40 transition-colors">
-            <textarea
-              ref={textareaRef}
-              className="flex-1 bg-transparent text-sm text-white placeholder-slate-600 resize-none outline-none py-1.5 px-2 max-h-32 leading-relaxed"
-              placeholder="Ask me anything about your risks…"
-              rows={1}
-              value={input}
-              onChange={e => {
-                setInput(e.target.value)
-                e.target.style.height = 'auto'
-                e.target.style.height = Math.min(e.target.scrollHeight, 128) + 'px'
-              }}
-              onKeyDown={handleKeyDown}
-            />
-            <button
-              onClick={() => sendMessage()}
-              disabled={!input.trim() || loading}
-              className="w-9 h-9 rounded-xl bg-gradient-to-br from-indigo-500 to-violet-600 flex items-center justify-center flex-shrink-0 disabled:opacity-40 hover:from-indigo-400 hover:to-violet-500 transition-all shadow-lg shadow-indigo-500/20">
-              {loading
-                ? <RefreshCw className="w-4 h-4 text-white animate-spin" />
-                : <Send className="w-4 h-4 text-white" />
-              }
-            </button>
+        <div className="px-6 py-4 border-t border-white/[0.06] bg-[#07101f]/50">
+          <div className="max-w-3xl mx-auto">
+            <div className="relative flex items-end gap-3 p-3 bg-white/[0.04] border border-white/[0.08] rounded-2xl focus-within:border-indigo-500/40 transition-all">
+              <textarea
+                ref={textareaRef}
+                value={input}
+                onChange={e => setInput(e.target.value)}
+                onKeyDown={handleKey}
+                placeholder="Ask about risk management, KRIs, Basel, SEBI, financial models..."
+                rows={1}
+                className="flex-1 bg-transparent text-sm text-white placeholder-slate-600 resize-none focus:outline-none leading-relaxed max-h-32 overflow-y-auto"
+                onInput={e => {
+                  e.target.style.height = 'auto'
+                  e.target.style.height = Math.min(e.target.scrollHeight, 128) + 'px'
+                }}
+              />
+              <button onClick={() => send()} disabled={!input.trim() || loading}
+                className="w-8 h-8 rounded-xl bg-indigo-600 hover:bg-indigo-500 disabled:opacity-30 disabled:cursor-not-allowed flex items-center justify-center transition-all flex-shrink-0">
+                {loading
+                  ? <RefreshCw className="w-3.5 h-3.5 text-white animate-spin" />
+                  : <Send className="w-3.5 h-3.5 text-white" />}
+              </button>
+            </div>
+            <p className="text-[10px] text-slate-700 text-center mt-2">
+              Enter to send · Shift+Enter for new line · Powered by ISO 31000, COSO ERM, Basel, SEBI, RBI & Wikipedia
+            </p>
           </div>
-          <p className="text-center text-[10px] text-slate-700 mt-2">
-            Press Enter to send · Shift+Enter for new line · AI may make mistakes — verify critical decisions
-          </p>
         </div>
       </div>
     </div>

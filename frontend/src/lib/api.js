@@ -57,6 +57,9 @@ export const risksAPI = {
 
 export const aiAPI = {
   analyze: (data) => api.post('/ai/analyze', data),
+  copilot: (data) => api.post('/ai/copilot', data),
+  copilotKbStatus: () => api.get('/ai/copilot/kb-status'),
+  copilotRefreshKb: () => api.post('/ai/copilot/refresh-kb'),
 }
 
 export const financialAPI = {
