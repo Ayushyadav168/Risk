@@ -171,42 +171,56 @@ def list_users(
 
 @router.post("/users")
 def create_user(body: UserCreate, db: Session = Depends(get_db), _: bool = Depends(require_admin)):
-    login_id = (body.login_id or body.email or f"risk-{secrets.token_hex(3)}").strip().lower()
-    password = body.password or secrets.token_urlsafe(9)
+    try:
+        login_id = (body.login_id or body.email or f"risk-{secrets.token_hex(3)}").strip().lower()
+        password = body.password or secrets.token_urlsafe(9)
 
-    if not login_id:
-        raise HTTPException(400, "Login ID is required")
-    if len(password) < 6:
-        raise HTTPException(400, "Password must be at least 6 characters")
-    if db.query(models.User).filter(models.User.email == login_id).first():
-        raise HTTPException(400, "Login ID already in use")
+        if not login_id:
+            raise HTTPException(400, "Login ID is required")
+        if len(password) < 6:
+            raise HTTPException(400, "Password must be at least 6 characters")
+        if db.query(models.User).filter(models.User.email == login_id).first():
+            raise HTTPException(400, f"Login ID '{login_id}' already in use")
 
-    # Create or reuse a default org
-    org = db.query(models.Organization).first()
-    if not org:
-        org = models.Organization(name="RiskIQ Workspace", plan="pro", onboarding_completed=True)
-        db.add(org)
-        db.flush()
+        # Create or reuse a default org — always safe to call
+        try:
+            org = db.query(models.Organization).first()
+            if not org:
+                org = models.Organization(
+                    name="RiskIQ Workspace",
+                    plan="pro",
+                    onboarding_completed=True
+                )
+                db.add(org)
+                db.flush()
+        except Exception:
+            org = None
 
-    user = models.User(
-        email=login_id,
-        hashed_password=hash_password(password),
-        full_name=body.full_name or login_id,
-        role=body.role,
-        organization_id=org.id if org else None,
-        is_active=True,
-    )
-    db.add(user)
-    db.commit()
-    db.refresh(user)
-    return {
-        "id": user.id,
-        "login_id": user.email,
-        "email": user.email,
-        "full_name": user.full_name,
-        "role": user.role,
-        "password": password,
-    }
+        hashed = hash_password(password)
+        user = models.User(
+            email=login_id,
+            hashed_password=hashed,
+            full_name=body.full_name or login_id,
+            role=body.role or "member",
+            organization_id=org.id if org else None,
+            is_active=True,
+        )
+        db.add(user)
+        db.commit()
+        db.refresh(user)
+        return {
+            "id": user.id,
+            "login_id": user.email,
+            "email": user.email,
+            "full_name": user.full_name,
+            "role": user.role,
+            "password": password,   # returned once so admin can copy it
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(500, f"Failed to create user: {str(e)}")
 
 @router.patch("/users/{user_id}")
 def update_user(user_id: int, body: UserUpdate, db: Session = Depends(get_db), _: bool = Depends(require_admin)):
@@ -478,6 +492,192 @@ def heatmap_data(db: Session = Depends(get_db), _: bool = Depends(require_admin)
         "low":      db.query(models.Risk).filter(models.Risk.severity == "low").count(),
     }
     return {"cells": list(cells.values()), "severity_breakdown": severity_breakdown, "total": len(risks)}
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Admin Meetings — admin token auth (no JWT required)
+# ─────────────────────────────────────────────────────────────────────────────
+class AdminMeetingCreate(BaseModel):
+    title: str
+    description: Optional[str] = None
+    scheduled_at: str
+    duration_min: int = 30
+    meet_link: Optional[str] = None
+    participant_emails: Optional[list] = []
+
+@router.get("/meetings")
+def admin_list_meetings(db: Session = Depends(get_db), _: bool = Depends(require_admin)):
+    from datetime import timezone
+    meetings = db.query(models.Meeting).order_by(models.Meeting.scheduled_at).all()
+    result = []
+    now = datetime.now(timezone.utc)
+    for m in meetings:
+        sched = m.scheduled_at
+        if sched and sched.tzinfo is None:
+            sched = sched.replace(tzinfo=timezone.utc)
+        mins_until = (sched - now).total_seconds() / 60 if sched else 0
+        is_live = -5 <= mins_until <= m.duration_min if sched else False
+        room_url = m.meet_link if m.meet_link else f"https://meet.jit.si/{m.room_id}"
+        participants = db.query(models.MeetingParticipant).filter(
+            models.MeetingParticipant.meeting_id == m.id
+        ).all()
+        result.append({
+            "id": m.id,
+            "title": m.title,
+            "description": m.description,
+            "scheduled_at": sched.isoformat() if sched else None,
+            "duration_min": m.duration_min,
+            "room_id": m.room_id,
+            "meet_link": m.meet_link,
+            "room_url": room_url,
+            "is_google_meet": bool(m.meet_link and "meet.google.com" in (m.meet_link or "")),
+            "status": "live" if is_live else m.status,
+            "mins_until": round(mins_until),
+            "participant_count": len(participants),
+            "participants": [{"email": p.email} for p in participants],
+            "created_at": m.created_at.isoformat() if m.created_at else None,
+        })
+    return result
+
+@router.post("/meetings")
+def admin_create_meeting(
+    body: AdminMeetingCreate,
+    db: Session = Depends(get_db),
+    _: bool = Depends(require_admin)
+):
+    import string as _string
+    from datetime import timezone
+    slug = "".join(c if c.isalnum() else "-" for c in body.title.lower())[:30].strip("-")
+    rand = "".join(secrets.choice(_string.ascii_lowercase + _string.digits) for _ in range(6))
+    room_id = f"riskiq-{slug}-{rand}"
+    try:
+        sched = datetime.fromisoformat(body.scheduled_at.replace("Z", "+00:00"))
+    except Exception:
+        raise HTTPException(400, "Invalid scheduled_at datetime format")
+
+    meeting = models.Meeting(
+        title=body.title,
+        description=body.description,
+        scheduled_at=sched,
+        duration_min=body.duration_min,
+        room_id=room_id,
+        meet_link=body.meet_link or None,
+        created_by_id=None,
+        organization_id=None,
+        status="scheduled",
+    )
+    db.add(meeting)
+    db.flush()
+
+    for email in (body.participant_emails or []):
+        if email.strip():
+            db.add(models.MeetingParticipant(
+                meeting_id=meeting.id,
+                user_id=None,
+                email=email.strip(),
+            ))
+    db.commit()
+    db.refresh(meeting)
+
+    room_url = meeting.meet_link if meeting.meet_link else f"https://meet.jit.si/{meeting.room_id}"
+    return {
+        "id": meeting.id,
+        "title": meeting.title,
+        "description": meeting.description,
+        "scheduled_at": meeting.scheduled_at.isoformat(),
+        "duration_min": meeting.duration_min,
+        "room_id": meeting.room_id,
+        "meet_link": meeting.meet_link,
+        "room_url": room_url,
+        "is_google_meet": bool(meeting.meet_link and "meet.google.com" in (meeting.meet_link or "")),
+        "status": meeting.status,
+    }
+
+@router.delete("/meetings/{meeting_id}")
+def admin_delete_meeting(
+    meeting_id: int,
+    db: Session = Depends(get_db),
+    _: bool = Depends(require_admin)
+):
+    m = db.query(models.Meeting).filter(models.Meeting.id == meeting_id).first()
+    if not m:
+        raise HTTPException(404, "Meeting not found")
+    db.delete(m)
+    db.commit()
+    return {"ok": True}
+
+@router.post("/messages/broadcast")
+def admin_broadcast_message(
+    body: dict,
+    db: Session = Depends(get_db),
+    _: bool = Depends(require_admin)
+):
+    """Send a message to all channels as admin."""
+    content = body.get("content", "").strip()
+    if not content:
+        raise HTTPException(400, "Content required")
+    # Find or use first user as sender
+    admin_user = db.query(models.User).first()
+    if not admin_user:
+        raise HTTPException(400, "No users in system yet")
+    for channel in ["general", "announcements"]:
+        db.add(models.Message(
+            sender_id=admin_user.id,
+            channel=channel,
+            content=content,
+            is_read=False,
+        ))
+    db.commit()
+    return {"ok": True, "channels": ["general", "announcements"]}
+
+@router.get("/messages")
+def admin_list_messages(
+    channel: str = "general",
+    limit: int = 50,
+    db: Session = Depends(get_db),
+    _: bool = Depends(require_admin)
+):
+    msgs = (
+        db.query(models.Message)
+        .filter(models.Message.channel == channel)
+        .order_by(models.Message.created_at.desc())
+        .limit(limit)
+        .all()
+    )
+    result = []
+    for msg in reversed(msgs):
+        sender = db.query(models.User).filter(models.User.id == msg.sender_id).first()
+        result.append({
+            "id": msg.id,
+            "content": msg.content,
+            "channel": msg.channel,
+            "sender_id": msg.sender_id,
+            "sender_name": (sender.full_name or sender.email) if sender else "Admin",
+            "created_at": msg.created_at.isoformat() if msg.created_at else None,
+        })
+    return result
+
+@router.post("/messages/send")
+def admin_send_message(
+    body: dict,
+    db: Session = Depends(get_db),
+    _: bool = Depends(require_admin)
+):
+    content = body.get("content", "").strip()
+    channel = body.get("channel", "general")
+    if not content:
+        raise HTTPException(400, "Content required")
+    admin_user = db.query(models.User).first()
+    if not admin_user:
+        raise HTTPException(400, "No users in system yet")
+    msg = models.Message(
+        sender_id=admin_user.id,
+        channel=channel,
+        content=content,
+        is_read=False,
+    )
+    db.add(msg)
+    db.commit()
+    return {"ok": True}
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Audit log

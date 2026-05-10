@@ -77,7 +77,9 @@ function MeetingCard({ meeting, onJoin, onDelete, isOwner }) {
           onClick={() => onJoin(meeting)}
           disabled={isPast}
           className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold transition-all ${
-            isLive
+            meeting.is_google_meet
+              ? 'bg-blue-600 hover:bg-blue-500 text-white'
+              : isLive
               ? 'bg-emerald-600 hover:bg-emerald-500 text-white'
               : isPast
               ? 'bg-white/[0.03] text-slate-600 cursor-not-allowed'
@@ -85,7 +87,7 @@ function MeetingCard({ meeting, onJoin, onDelete, isOwner }) {
           }`}
         >
           <Video className="w-3.5 h-3.5" />
-          {isLive ? 'Join Now' : isPast ? 'Ended' : 'Join Meeting'}
+          {isPast ? 'Ended' : meeting.is_google_meet ? 'Open Google Meet' : isLive ? 'Join Now' : 'Join Meeting'}
         </button>
         <button onClick={copyLink}
           className="px-3 py-2 bg-white/[0.04] hover:bg-white/[0.07] border border-white/[0.07] rounded-xl text-xs text-slate-400 transition-all flex items-center gap-1.5">
@@ -178,7 +180,7 @@ export default function VideoCall() {
   const [currentRoom, setCurrentRoom] = useState(null)
   const [showCreate, setShowCreate] = useState(false)
   const [form, setForm] = useState({
-    title: '', description: '', scheduled_at: '', duration_min: 30, participant_emails: ''
+    title: '', description: '', scheduled_at: '', duration_min: 30, meet_link: '', participant_emails: ''
   })
   const [creating, setCreating] = useState(false)
   const [quickRoom, setQuickRoom] = useState('')
@@ -200,6 +202,12 @@ export default function VideoCall() {
   }
 
   const joinMeeting = async (meeting) => {
+    // If meeting has a Google Meet link, open in new tab
+    if (meeting.meet_link) {
+      window.open(meeting.meet_link, '_blank', 'noopener,noreferrer')
+      return
+    }
+    // Otherwise use Jitsi embed
     try {
       const res = await api.post(`/meetings/${meeting.id}/join`)
       setCurrentRoom(res.data.room_id)
@@ -226,9 +234,10 @@ export default function VideoCall() {
         description: form.description,
         scheduled_at: new Date(form.scheduled_at).toISOString(),
         duration_min: form.duration_min,
+        meet_link: form.meet_link || null,
         participant_emails: emails,
       })
-      setForm({ title: '', description: '', scheduled_at: '', duration_min: 30, participant_emails: '' })
+      setForm({ title: '', description: '', scheduled_at: '', duration_min: 30, meet_link: '', participant_emails: '' })
       setShowCreate(false)
       await fetchMeetings()
     } catch {}
@@ -268,7 +277,7 @@ export default function VideoCall() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-white">Video Meetings</h1>
-          <p className="text-slate-400 text-sm mt-1">Schedule and join team video calls powered by Jitsi</p>
+          <p className="text-slate-400 text-sm mt-1">Schedule Google Meet calls or start instant Jitsi sessions</p>
         </div>
         <div className="flex gap-2">
           <button onClick={() => setShowCreate(true)}
@@ -388,6 +397,20 @@ export default function VideoCall() {
                     onChange={e => setForm(f => ({...f, duration_min: parseInt(e.target.value) || 30}))}
                     className="w-full px-3 py-2.5 bg-[#0d1426] border border-white/[0.08] rounded-xl text-sm text-white focus:outline-none focus:border-indigo-500/60" />
                 </div>
+              </div>
+              {/* Google Meet Link */}
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs text-slate-400 font-medium">Google Meet Link <span className="text-slate-600">(recommended)</span></label>
+                  <a href="https://meet.google.com/new" target="_blank" rel="noreferrer"
+                    className="text-[11px] text-blue-400 hover:text-blue-300 flex items-center gap-1">
+                    <ExternalLink className="w-3 h-3" /> Create Meet →
+                  </a>
+                </div>
+                <input value={form.meet_link} onChange={e => setForm(f => ({...f, meet_link: e.target.value}))}
+                  placeholder="https://meet.google.com/xxx-yyyy-zzz"
+                  className="w-full px-3 py-2.5 bg-[#0d1426] border border-white/[0.08] rounded-xl text-sm text-white placeholder-slate-600 focus:outline-none focus:border-blue-500/40" />
+                <p className="text-[10px] text-slate-600">Leave blank to use Jitsi (embedded video call)</p>
               </div>
               <div className="space-y-1.5">
                 <label className="text-xs text-slate-400 font-medium">Invite Participants (emails, comma separated)</label>

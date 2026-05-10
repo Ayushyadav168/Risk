@@ -416,8 +416,9 @@ class Meeting(Base):
     description   = Column(Text, nullable=True)
     scheduled_at  = Column(DateTime(timezone=True), nullable=False)
     duration_min  = Column(Integer, default=30)
-    room_id       = Column(String(100), nullable=False)   # Jitsi room ID
-    created_by_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    room_id       = Column(String(100), nullable=False)   # fallback room slug
+    meet_link     = Column(String(500), nullable=True)   # Google Meet or custom link
+    created_by_id = Column(Integer, ForeignKey("users.id"), nullable=True)
     organization_id = Column(Integer, ForeignKey("organizations.id"), nullable=True)
     status        = Column(String(20), default="scheduled")  # scheduled | live | ended
     created_at    = Column(DateTime(timezone=True), server_default=func.now())

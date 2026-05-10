@@ -640,58 +640,84 @@ function HeatmapSection() {
 
 // ─── MEETINGS SECTION ──────────────────────────────────────────────────────────
 function MeetingsSection() {
+  const EMPTY_FORM = { title: '', description: '', scheduled_at: '', duration_min: 30, meet_link: '', participant_emails: '' }
   const [meetings, setMeetings] = useState([])
   const [loading, setLoading] = useState(true)
   const [showModal, setShowModal] = useState(false)
-  const [form, setForm] = useState({ title: '', description: '', scheduled_at: '', duration_min: 30, participant_emails: '' })
+  const [form, setForm] = useState(EMPTY_FORM)
   const [saving, setSaving] = useState(false)
   const [copied, setCopied] = useState(null)
-  const [msgModal, setMsgModal] = useState(null) // meeting to send link for
-  const [msgSending, setMsgSending] = useState(false)
+  const [sendingId, setSendingId] = useState(null)
+  const [error, setError] = useState('')
 
+  // Use admin-specific endpoints so no JWT required
   const load = () => {
     setLoading(true)
-    api.get('/meetings/', { headers: admH() }).then(r => setMeetings(r.data)).catch(() => {}).finally(() => setLoading(false))
+    adm.get('/meetings').then(r => setMeetings(r.data)).catch(() => {}).finally(() => setLoading(false))
   }
 
   useEffect(() => { load() }, [])
 
   const create = async () => {
-    if (!form.title || !form.scheduled_at) return
-    setSaving(true)
+    if (!form.title || !form.scheduled_at) { setError('Title and date/time are required'); return }
+    setSaving(true); setError('')
     try {
       const emails = form.participant_emails.split(',').map(e => e.trim()).filter(Boolean)
-      await api.post('/meetings/', { ...form, duration_min: +form.duration_min, participant_emails: emails }, { headers: admH() })
+      await adm.post('/meetings', {
+        title: form.title,
+        description: form.description,
+        scheduled_at: form.scheduled_at,
+        duration_min: +form.duration_min,
+        meet_link: form.meet_link || null,
+        participant_emails: emails,
+      })
       setShowModal(false)
-      setForm({ title: '', description: '', scheduled_at: '', duration_min: 30, participant_emails: '' })
+      setForm(EMPTY_FORM)
       load()
-    } catch {}
+    } catch (e) { setError(e.response?.data?.detail || 'Failed to create meeting') }
     setSaving(false)
   }
 
   const deleteMeeting = async (id) => {
     if (!window.confirm('Delete this meeting?')) return
-    await api.delete(`/meetings/${id}`, { headers: admH() }).catch(() => {})
+    await adm.delete(`/meetings/${id}`).catch(() => {})
     load()
   }
 
-  const copyLink = (roomId) => {
-    const link = `https://meet.jit.si/${roomId}`
+  const copyLink = (m) => {
+    const link = m.meet_link || m.room_url || `https://meet.jit.si/${m.room_id}`
     navigator.clipboard.writeText(link)
-    setCopied(roomId)
+    setCopied(m.id)
     setTimeout(() => setCopied(null), 2000)
   }
 
-  const sendLinkAsMessage = async (meeting) => {
-    setMsgSending(true)
+  const sendLinkAsMessage = async (m) => {
+    setSendingId(m.id)
     try {
-      const link = `https://meet.jit.si/${meeting.room_id}`
-      const content = `📅 **Meeting Invitation: ${meeting.title}**\n\nScheduled: ${new Date(meeting.scheduled_at).toLocaleString()}\nDuration: ${meeting.duration_min} min\n\n🔗 Join here: ${link}\n\n${meeting.description || ''}`
-      await api.post('/messages/', { content, channel: 'general' }, { headers: admH() })
-      setMsgModal(null)
-      alert('Meeting link sent to #general channel!')
+      const link = m.meet_link || m.room_url || `https://meet.jit.si/${m.room_id}`
+      const dt = new Date(m.scheduled_at).toLocaleString()
+      const provider = m.is_google_meet ? '🎥 Google Meet' : '📹 Video Call'
+      const content = `📅 **Meeting Invitation: ${m.title}**\n\n${provider}\n🕐 ${dt}  •  ${m.duration_min} min\n\n🔗 Join: ${link}${m.description ? `\n\n📋 ${m.description}` : ''}`
+      await adm.post('/messages/send', { content, channel: 'general' })
+      alert('Meeting invitation sent to #general channel!')
     } catch { alert('Failed to send message') }
-    setMsgSending(false)
+    setSendingId(null)
+  }
+
+  const shareAll = async (m) => {
+    // Build a sharable text block with all meeting details
+    const link = m.meet_link || m.room_url || `https://meet.jit.si/${m.room_id}`
+    const dt = new Date(m.scheduled_at)
+    const text = [
+      `📅 Meeting: ${m.title}`,
+      `🗓️  Date: ${dt.toLocaleDateString('en-IN', { weekday:'long', year:'numeric', month:'long', day:'numeric' })}`,
+      `🕐  Time: ${dt.toLocaleTimeString([], { hour:'2-digit', minute:'2-digit' })}`,
+      `⏱️  Duration: ${m.duration_min} minutes`,
+      `🔗  Join: ${link}`,
+      m.description ? `📋  Agenda: ${m.description}` : '',
+    ].filter(Boolean).join('\n')
+    try { await navigator.clipboard.writeText(text); alert('All meeting details copied to clipboard!') }
+    catch { alert(text) }
   }
 
   const now = new Date()
@@ -702,15 +728,21 @@ function MeetingsSection() {
     const dt = new Date(m.scheduled_at)
     const isLive = Math.abs(dt - now) < m.duration_min * 60000
     const isPast = dt < now && !isLive
+    const joinLink = m.meet_link || m.room_url || `https://meet.jit.si/${m.room_id}`
     return (
       <div className="bg-white/[0.02] border border-white/[0.06] rounded-xl p-5 flex flex-col gap-3 hover:border-white/[0.1] transition-all">
         <div className="flex items-start justify-between gap-3">
           <div className="flex items-center gap-3 min-w-0">
-            <div className={`w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 ${isLive ? 'bg-emerald-500/20' : isPast ? 'bg-slate-700/40' : 'bg-indigo-500/15'}`}>
-              <Video className={`w-4 h-4 ${isLive ? 'text-emerald-400' : isPast ? 'text-slate-500' : 'text-indigo-400'}`} />
+            <div className={`w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 ${isLive ? 'bg-emerald-500/20' : isPast ? 'bg-slate-700/40' : 'bg-blue-500/15'}`}>
+              {m.is_google_meet
+                ? <span className={`text-base ${isLive ? 'text-emerald-400' : isPast ? 'text-slate-500' : 'text-blue-400'}`}>G</span>
+                : <Video className={`w-4 h-4 ${isLive ? 'text-emerald-400' : isPast ? 'text-slate-500' : 'text-blue-400'}`} />}
             </div>
             <div className="min-w-0">
-              <p className="text-sm font-semibold text-white truncate">{m.title}</p>
+              <div className="flex items-center gap-2">
+                <p className="text-sm font-semibold text-white truncate">{m.title}</p>
+                {m.is_google_meet && <span className="text-[10px] bg-blue-500/15 text-blue-400 border border-blue-500/20 px-1.5 py-0.5 rounded font-medium flex-shrink-0">Google Meet</span>}
+              </div>
               {m.description && <p className="text-xs text-slate-500 truncate">{m.description}</p>}
             </div>
           </div>
@@ -723,20 +755,28 @@ function MeetingsSection() {
         <div className="flex items-center gap-4 text-xs text-slate-500">
           <span className="flex items-center gap-1"><Clock className="w-3 h-3" />{dt.toLocaleString()}</span>
           <span>{m.duration_min} min</span>
-          {m.participants?.length > 0 && <span className="flex items-center gap-1"><UserPlus className="w-3 h-3" />{m.participants.length}</span>}
+          {m.participant_count > 0 && <span className="flex items-center gap-1"><UserPlus className="w-3 h-3" />{m.participant_count} invited</span>}
         </div>
-        <div className="flex items-center gap-2">
-          <a href={`https://meet.jit.si/${m.room_id}`} target="_blank" rel="noreferrer"
-            className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600/20 hover:bg-emerald-600/30 border border-emerald-500/20 rounded-lg text-xs text-emerald-400 transition-all">
-            <ExternalLink className="w-3 h-3" /> Join Meeting
+        {/* Meeting link preview */}
+        <div className="flex items-center gap-2 px-3 py-2 bg-white/[0.03] border border-white/[0.06] rounded-lg">
+          <span className="text-[11px] text-slate-500 truncate flex-1 font-mono">{joinLink}</span>
+        </div>
+        <div className="flex items-center gap-2 flex-wrap">
+          <a href={joinLink} target="_blank" rel="noreferrer"
+            className={`flex items-center gap-1.5 px-3 py-1.5 border rounded-lg text-xs transition-all ${m.is_google_meet ? 'bg-blue-600/20 hover:bg-blue-600/30 border-blue-500/20 text-blue-400' : 'bg-emerald-600/20 hover:bg-emerald-600/30 border-emerald-500/20 text-emerald-400'}`}>
+            <ExternalLink className="w-3 h-3" /> {m.is_google_meet ? 'Open Google Meet' : 'Join Call'}
           </a>
-          <button onClick={() => copyLink(m.room_id)}
+          <button onClick={() => copyLink(m)}
             className="flex items-center gap-1.5 px-3 py-1.5 bg-white/[0.04] hover:bg-white/[0.07] border border-white/[0.08] rounded-lg text-xs text-slate-400 transition-all">
-            <Copy className="w-3 h-3" /> {copied === m.room_id ? 'Copied!' : 'Copy Link'}
+            <Copy className="w-3 h-3" /> {copied === m.id ? 'Copied!' : 'Copy Link'}
           </button>
-          <button onClick={() => sendLinkAsMessage(m)}
-            className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-500/15 hover:bg-indigo-500/25 border border-indigo-500/20 rounded-lg text-xs text-indigo-400 transition-all">
-            <MessageSquare className="w-3 h-3" /> Send to Team
+          <button onClick={() => shareAll(m)}
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-violet-500/15 hover:bg-violet-500/25 border border-violet-500/20 rounded-lg text-xs text-violet-400 transition-all">
+            <Copy className="w-3 h-3" /> Copy All Details
+          </button>
+          <button onClick={() => sendLinkAsMessage(m)} disabled={sendingId === m.id}
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-500/15 hover:bg-indigo-500/25 border border-indigo-500/20 rounded-lg text-xs text-indigo-400 transition-all disabled:opacity-50">
+            {sendingId === m.id ? <RefreshCw className="w-3 h-3 animate-spin" /> : <MessageSquare className="w-3 h-3" />} Send to Team
           </button>
           <button onClick={() => deleteMeeting(m.id)} className="ml-auto p-1.5 text-slate-600 hover:text-red-400 transition-colors">
             <Trash2 className="w-3.5 h-3.5" />
@@ -751,9 +791,22 @@ function MeetingsSection() {
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-lg font-bold text-white">Video Meetings</h2>
-          <p className="text-xs text-slate-500 mt-0.5">Schedule and manage team meetings via Jitsi</p>
+          <p className="text-xs text-slate-500 mt-0.5">Schedule Google Meet calls and share with the team</p>
         </div>
-        <Btn onClick={() => setShowModal(true)}><Plus className="w-3.5 h-3.5" /> Schedule Meeting</Btn>
+        <Btn onClick={() => { setShowModal(true); setError('') }}><Plus className="w-3.5 h-3.5" /> Schedule Meeting</Btn>
+      </div>
+
+      {/* Google Meet tip */}
+      <div className="flex items-start gap-3 p-4 bg-blue-500/10 border border-blue-500/20 rounded-xl">
+        <div className="w-8 h-8 rounded-lg bg-blue-500/20 flex items-center justify-center flex-shrink-0 font-bold text-blue-400">G</div>
+        <div>
+          <p className="text-sm font-medium text-blue-300">Using Google Meet</p>
+          <p className="text-xs text-slate-500 mt-0.5">
+            Click "Schedule Meeting", then{' '}
+            <a href="https://meet.google.com/new" target="_blank" rel="noreferrer" className="text-blue-400 underline">open Google Meet</a>
+            {' '}to create a room, copy the link, and paste it in the form.
+          </p>
+        </div>
       </div>
 
       {loading ? (
@@ -788,9 +841,9 @@ function MeetingsSection() {
         <Modal title="Schedule New Meeting" onClose={() => setShowModal(false)} wide>
           <TField label="Meeting Title *" value={form.title} onChange={e => setForm(s => ({ ...s, title: e.target.value }))} placeholder="e.g. Q1 Risk Review" />
           <div className="space-y-1">
-            <label className="block text-xs text-slate-400 font-medium">Description</label>
+            <label className="block text-xs text-slate-400 font-medium">Description / Agenda</label>
             <textarea value={form.description} onChange={e => setForm(s => ({ ...s, description: e.target.value }))}
-              placeholder="Agenda or notes..." rows={2}
+              placeholder="What will be discussed..." rows={2}
               className="w-full px-3 py-2.5 bg-[#0d1426] border border-white/[0.08] rounded-lg text-sm text-white placeholder-slate-600 focus:outline-none focus:border-indigo-500/60 transition-all resize-none" />
           </div>
           <div className="grid grid-cols-2 gap-3">
@@ -799,9 +852,24 @@ function MeetingsSection() {
               <input type="datetime-local" value={form.scheduled_at} onChange={e => setForm(s => ({ ...s, scheduled_at: e.target.value }))}
                 className="w-full px-3 py-2.5 bg-[#0d1426] border border-white/[0.08] rounded-lg text-sm text-white focus:outline-none focus:border-indigo-500/60 transition-all" />
             </div>
-            <TField label="Duration (minutes)" type="number" value={form.duration_min} onChange={e => setForm(s => ({ ...s, duration_min: e.target.value }))} min={5} max={480} />
+            <TField label="Duration (min)" type="number" value={form.duration_min} onChange={e => setForm(s => ({ ...s, duration_min: e.target.value }))} min={5} max={480} />
+          </div>
+          {/* Google Meet link field */}
+          <div className="space-y-1">
+            <div className="flex items-center justify-between">
+              <label className="block text-xs text-slate-400 font-medium">Google Meet Link</label>
+              <a href="https://meet.google.com/new" target="_blank" rel="noreferrer"
+                className="text-[11px] text-blue-400 hover:text-blue-300 flex items-center gap-1 transition-colors">
+                <ExternalLink className="w-3 h-3" /> Create Google Meet →
+              </a>
+            </div>
+            <input value={form.meet_link} onChange={e => setForm(s => ({ ...s, meet_link: e.target.value }))}
+              placeholder="https://meet.google.com/xxx-yyyy-zzz"
+              className="w-full px-3 py-2.5 bg-[#0d1426] border border-white/[0.08] rounded-lg text-sm text-white placeholder-slate-600 focus:outline-none focus:border-blue-500/40 transition-all" />
+            <p className="text-[11px] text-slate-600">Open Google Meet, create a room, copy the link and paste it here</p>
           </div>
           <TField label="Invite Emails (comma separated)" value={form.participant_emails} onChange={e => setForm(s => ({ ...s, participant_emails: e.target.value }))} placeholder="alice@co.com, bob@co.com" />
+          {error && <p className="text-xs text-red-400 bg-red-500/10 border border-red-500/20 px-3 py-2 rounded-lg">{error}</p>}
           <div className="flex justify-end gap-2 pt-2">
             <Btn variant="ghost" onClick={() => setShowModal(false)}>Cancel</Btn>
             <Btn onClick={create} disabled={saving || !form.title || !form.scheduled_at}>
@@ -826,7 +894,7 @@ function MessagesSection() {
 
   const load = (ch = channel) => {
     setLoading(true)
-    api.get('/messages/', { headers: admH(), params: { channel: ch, limit: 50 } })
+    adm.get('/messages', { channel: ch, limit: 50 })
       .then(r => setMessages(r.data)).catch(() => {}).finally(() => setLoading(false))
   }
 
@@ -837,7 +905,7 @@ function MessagesSection() {
     if (!text || sending) return
     setSending(true)
     try {
-      await api.post('/messages/', { content: text, channel }, { headers: admH() })
+      await adm.post('/messages/send', { content: text, channel })
       setInput('')
       load(channel)
     } catch {}
@@ -849,10 +917,10 @@ function MessagesSection() {
     if (!text || broadcasting) return
     setBroadcasting(true)
     try {
-      await api.post('/messages/broadcast', { content: text }, { headers: admH() })
+      await adm.post('/messages/broadcast', { content: text })
       setBroadcastInput('')
-      if (channel === 'announcements') load('announcements')
-      alert('Broadcast sent to all channels!')
+      load(channel)
+      alert('Broadcast sent to #general and #announcements!')
     } catch { alert('Failed to send broadcast') }
     setBroadcasting(false)
   }

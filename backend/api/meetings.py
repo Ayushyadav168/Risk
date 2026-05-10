@@ -1,4 +1,4 @@
-"""Meetings API — schedule, join, manage video calls via Jitsi Meet."""
+"""Meetings API — schedule, join, manage video calls via Google Meet / Jitsi."""
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from database import get_db
@@ -21,6 +21,7 @@ class MeetingCreate(BaseModel):
     description: Optional[str] = None
     scheduled_at: str   # ISO8601
     duration_min: int = 30
+    meet_link: Optional[str] = None          # Google Meet link (pasted by admin)
     participant_emails: Optional[List[str]] = []
 
 class MeetingUpdate(BaseModel):
@@ -28,11 +29,13 @@ class MeetingUpdate(BaseModel):
     description: Optional[str] = None
     scheduled_at: Optional[str] = None
     duration_min: Optional[int] = None
+    meet_link: Optional[str] = None
     status: Optional[str] = None
 
 def _fmt(m: models.Meeting, db: Session) -> dict:
     creator_name = (m.creator.full_name or m.creator.email) if m.creator else "Admin"
-    room_url = f"https://meet.jit.si/{m.room_id}"
+    # Use Google Meet link if set, otherwise fall back to Jitsi
+    room_url = m.meet_link if m.meet_link else f"https://meet.jit.si/{m.room_id}"
     now = datetime.now(timezone.utc)
     sched = m.scheduled_at
     if sched and sched.tzinfo is None:
@@ -49,7 +52,9 @@ def _fmt(m: models.Meeting, db: Session) -> dict:
         "scheduled_at": sched.isoformat() if sched else None,
         "duration_min": m.duration_min,
         "room_id": m.room_id,
+        "meet_link": m.meet_link,
         "room_url": room_url,
+        "is_google_meet": bool(m.meet_link and "meet.google.com" in m.meet_link),
         "created_by_id": m.created_by_id,
         "creator_name": creator_name,
         "status": "live" if is_live else m.status,
@@ -90,6 +95,7 @@ def create_meeting(
         scheduled_at=sched,
         duration_min=body.duration_min,
         room_id=room_id,
+        meet_link=body.meet_link or None,
         created_by_id=current_user.id,
         organization_id=current_user.organization_id,
         status="scheduled",
@@ -156,6 +162,7 @@ def update_meeting(
     if body.description is not None: m.description = body.description
     if body.duration_min: m.duration_min = body.duration_min
     if body.status: m.status = body.status
+    if body.meet_link is not None: m.meet_link = body.meet_link or None
     if body.scheduled_at:
         m.scheduled_at = datetime.fromisoformat(body.scheduled_at.replace("Z", "+00:00"))
     db.commit()
