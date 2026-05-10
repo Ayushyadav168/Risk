@@ -29,6 +29,8 @@ import AdminPanel from './pages/AdminPanel'
 import ActionCenter from './pages/ActionCenter'
 import KRIMonitor from './pages/KRIMonitor'
 import AICopilot from './pages/AICopilot'
+import Messenger from './pages/Messenger'
+import VideoCall from './pages/VideoCall'
 
 function ProtectedRoute({ children }) {
   const { isAuthenticated } = useAuthStore()
@@ -75,6 +77,8 @@ export default function App() {
             <Route path="action-center"       element={<ActionCenter />} />
             <Route path="kri"                 element={<KRIMonitor />} />
             <Route path="ai-copilot"          element={<AICopilot />} />
+            <Route path="messenger"           element={<Messenger />} />
+            <Route path="video-call"          element={<VideoCall />} />
           </Route>
 
           {/* Admin — standalone, no app shell */}

@@ -3,7 +3,9 @@ import {
   Shield, Users, BarChart3, FileText, Star, Trash2, Plus, Edit2,
   X, AlertTriangle, RefreshCw, LogOut, Eye, EyeOff, Search,
   Activity, Layers, ClipboardList, Lock, Database, Mail,
-  TrendingUp, CheckCircle, XCircle, Sparkles, ChevronRight, Save
+  TrendingUp, CheckCircle, XCircle, Sparkles, ChevronRight, Save,
+  Video, MessageSquare, Calendar, Send, Megaphone, Copy, ExternalLink,
+  Clock, UserPlus, Hash, AtSign
 } from 'lucide-react'
 import api from '../lib/api'
 
@@ -636,16 +638,331 @@ function HeatmapSection() {
   )
 }
 
+// ─── MEETINGS SECTION ──────────────────────────────────────────────────────────
+function MeetingsSection() {
+  const [meetings, setMeetings] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [showModal, setShowModal] = useState(false)
+  const [form, setForm] = useState({ title: '', description: '', scheduled_at: '', duration_min: 30, participant_emails: '' })
+  const [saving, setSaving] = useState(false)
+  const [copied, setCopied] = useState(null)
+  const [msgModal, setMsgModal] = useState(null) // meeting to send link for
+  const [msgSending, setMsgSending] = useState(false)
+
+  const load = () => {
+    setLoading(true)
+    api.get('/meetings/', { headers: admH() }).then(r => setMeetings(r.data)).catch(() => {}).finally(() => setLoading(false))
+  }
+
+  useEffect(() => { load() }, [])
+
+  const create = async () => {
+    if (!form.title || !form.scheduled_at) return
+    setSaving(true)
+    try {
+      const emails = form.participant_emails.split(',').map(e => e.trim()).filter(Boolean)
+      await api.post('/meetings/', { ...form, duration_min: +form.duration_min, participant_emails: emails }, { headers: admH() })
+      setShowModal(false)
+      setForm({ title: '', description: '', scheduled_at: '', duration_min: 30, participant_emails: '' })
+      load()
+    } catch {}
+    setSaving(false)
+  }
+
+  const deleteMeeting = async (id) => {
+    if (!window.confirm('Delete this meeting?')) return
+    await api.delete(`/meetings/${id}`, { headers: admH() }).catch(() => {})
+    load()
+  }
+
+  const copyLink = (roomId) => {
+    const link = `https://meet.jit.si/${roomId}`
+    navigator.clipboard.writeText(link)
+    setCopied(roomId)
+    setTimeout(() => setCopied(null), 2000)
+  }
+
+  const sendLinkAsMessage = async (meeting) => {
+    setMsgSending(true)
+    try {
+      const link = `https://meet.jit.si/${meeting.room_id}`
+      const content = `📅 **Meeting Invitation: ${meeting.title}**\n\nScheduled: ${new Date(meeting.scheduled_at).toLocaleString()}\nDuration: ${meeting.duration_min} min\n\n🔗 Join here: ${link}\n\n${meeting.description || ''}`
+      await api.post('/messages/', { content, channel: 'general' }, { headers: admH() })
+      setMsgModal(null)
+      alert('Meeting link sent to #general channel!')
+    } catch { alert('Failed to send message') }
+    setMsgSending(false)
+  }
+
+  const now = new Date()
+  const upcoming = meetings.filter(m => new Date(m.scheduled_at) >= now)
+  const past = meetings.filter(m => new Date(m.scheduled_at) < now)
+
+  const MeetingCard = ({ m }) => {
+    const dt = new Date(m.scheduled_at)
+    const isLive = Math.abs(dt - now) < m.duration_min * 60000
+    const isPast = dt < now && !isLive
+    return (
+      <div className="bg-white/[0.02] border border-white/[0.06] rounded-xl p-5 flex flex-col gap-3 hover:border-white/[0.1] transition-all">
+        <div className="flex items-start justify-between gap-3">
+          <div className="flex items-center gap-3 min-w-0">
+            <div className={`w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 ${isLive ? 'bg-emerald-500/20' : isPast ? 'bg-slate-700/40' : 'bg-indigo-500/15'}`}>
+              <Video className={`w-4 h-4 ${isLive ? 'text-emerald-400' : isPast ? 'text-slate-500' : 'text-indigo-400'}`} />
+            </div>
+            <div className="min-w-0">
+              <p className="text-sm font-semibold text-white truncate">{m.title}</p>
+              {m.description && <p className="text-xs text-slate-500 truncate">{m.description}</p>}
+            </div>
+          </div>
+          <div className="flex items-center gap-1.5 flex-shrink-0">
+            {isLive && <span className="flex items-center gap-1 text-[10px] bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 px-2 py-0.5 rounded-full font-bold uppercase"><span className="w-1.5 h-1.5 bg-emerald-400 rounded-full animate-pulse" />Live</span>}
+            {!isLive && !isPast && <span className="text-[10px] bg-indigo-500/15 text-indigo-400 border border-indigo-500/20 px-2 py-0.5 rounded-full font-medium">Upcoming</span>}
+            {isPast && <span className="text-[10px] bg-slate-700/40 text-slate-500 px-2 py-0.5 rounded-full">Past</span>}
+          </div>
+        </div>
+        <div className="flex items-center gap-4 text-xs text-slate-500">
+          <span className="flex items-center gap-1"><Clock className="w-3 h-3" />{dt.toLocaleString()}</span>
+          <span>{m.duration_min} min</span>
+          {m.participants?.length > 0 && <span className="flex items-center gap-1"><UserPlus className="w-3 h-3" />{m.participants.length}</span>}
+        </div>
+        <div className="flex items-center gap-2">
+          <a href={`https://meet.jit.si/${m.room_id}`} target="_blank" rel="noreferrer"
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600/20 hover:bg-emerald-600/30 border border-emerald-500/20 rounded-lg text-xs text-emerald-400 transition-all">
+            <ExternalLink className="w-3 h-3" /> Join Meeting
+          </a>
+          <button onClick={() => copyLink(m.room_id)}
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-white/[0.04] hover:bg-white/[0.07] border border-white/[0.08] rounded-lg text-xs text-slate-400 transition-all">
+            <Copy className="w-3 h-3" /> {copied === m.room_id ? 'Copied!' : 'Copy Link'}
+          </button>
+          <button onClick={() => sendLinkAsMessage(m)}
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-500/15 hover:bg-indigo-500/25 border border-indigo-500/20 rounded-lg text-xs text-indigo-400 transition-all">
+            <MessageSquare className="w-3 h-3" /> Send to Team
+          </button>
+          <button onClick={() => deleteMeeting(m.id)} className="ml-auto p-1.5 text-slate-600 hover:text-red-400 transition-colors">
+            <Trash2 className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-lg font-bold text-white">Video Meetings</h2>
+          <p className="text-xs text-slate-500 mt-0.5">Schedule and manage team meetings via Jitsi</p>
+        </div>
+        <Btn onClick={() => setShowModal(true)}><Plus className="w-3.5 h-3.5" /> Schedule Meeting</Btn>
+      </div>
+
+      {loading ? (
+        <div className="flex justify-center py-16"><RefreshCw className="w-5 h-5 text-slate-500 animate-spin" /></div>
+      ) : (
+        <>
+          {upcoming.length > 0 && (
+            <div>
+              <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3">Upcoming ({upcoming.length})</p>
+              <div className="space-y-3">{upcoming.map(m => <MeetingCard key={m.id} m={m} />)}</div>
+            </div>
+          )}
+          {past.length > 0 && (
+            <div>
+              <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3">Past Meetings</p>
+              <div className="space-y-3 opacity-60">{past.slice(0, 5).map(m => <MeetingCard key={m.id} m={m} />)}</div>
+            </div>
+          )}
+          {meetings.length === 0 && (
+            <div className="flex flex-col items-center justify-center py-20 gap-3">
+              <div className="w-16 h-16 rounded-2xl bg-white/[0.03] border border-white/[0.06] flex items-center justify-center">
+                <Video className="w-7 h-7 text-slate-700" />
+              </div>
+              <p className="text-slate-500 text-sm">No meetings scheduled yet</p>
+              <Btn onClick={() => setShowModal(true)}><Plus className="w-3.5 h-3.5" /> Schedule First Meeting</Btn>
+            </div>
+          )}
+        </>
+      )}
+
+      {showModal && (
+        <Modal title="Schedule New Meeting" onClose={() => setShowModal(false)} wide>
+          <TField label="Meeting Title *" value={form.title} onChange={e => setForm(s => ({ ...s, title: e.target.value }))} placeholder="e.g. Q1 Risk Review" />
+          <div className="space-y-1">
+            <label className="block text-xs text-slate-400 font-medium">Description</label>
+            <textarea value={form.description} onChange={e => setForm(s => ({ ...s, description: e.target.value }))}
+              placeholder="Agenda or notes..." rows={2}
+              className="w-full px-3 py-2.5 bg-[#0d1426] border border-white/[0.08] rounded-lg text-sm text-white placeholder-slate-600 focus:outline-none focus:border-indigo-500/60 transition-all resize-none" />
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1">
+              <label className="block text-xs text-slate-400 font-medium">Date & Time *</label>
+              <input type="datetime-local" value={form.scheduled_at} onChange={e => setForm(s => ({ ...s, scheduled_at: e.target.value }))}
+                className="w-full px-3 py-2.5 bg-[#0d1426] border border-white/[0.08] rounded-lg text-sm text-white focus:outline-none focus:border-indigo-500/60 transition-all" />
+            </div>
+            <TField label="Duration (minutes)" type="number" value={form.duration_min} onChange={e => setForm(s => ({ ...s, duration_min: e.target.value }))} min={5} max={480} />
+          </div>
+          <TField label="Invite Emails (comma separated)" value={form.participant_emails} onChange={e => setForm(s => ({ ...s, participant_emails: e.target.value }))} placeholder="alice@co.com, bob@co.com" />
+          <div className="flex justify-end gap-2 pt-2">
+            <Btn variant="ghost" onClick={() => setShowModal(false)}>Cancel</Btn>
+            <Btn onClick={create} disabled={saving || !form.title || !form.scheduled_at}>
+              {saving ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Calendar className="w-3.5 h-3.5" />} Schedule
+            </Btn>
+          </div>
+        </Modal>
+      )}
+    </div>
+  )
+}
+
+// ─── MESSAGES SECTION ──────────────────────────────────────────────────────────
+function MessagesSection() {
+  const [messages, setMessages] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [channel, setChannel] = useState('general')
+  const [input, setInput] = useState('')
+  const [sending, setSending] = useState(false)
+  const [broadcastInput, setBroadcastInput] = useState('')
+  const [broadcasting, setBroadcasting] = useState(false)
+
+  const load = (ch = channel) => {
+    setLoading(true)
+    api.get('/messages/', { headers: admH(), params: { channel: ch, limit: 50 } })
+      .then(r => setMessages(r.data)).catch(() => {}).finally(() => setLoading(false))
+  }
+
+  useEffect(() => { load(channel) }, [channel])
+
+  const send = async () => {
+    const text = input.trim()
+    if (!text || sending) return
+    setSending(true)
+    try {
+      await api.post('/messages/', { content: text, channel }, { headers: admH() })
+      setInput('')
+      load(channel)
+    } catch {}
+    setSending(false)
+  }
+
+  const broadcast = async () => {
+    const text = broadcastInput.trim()
+    if (!text || broadcasting) return
+    setBroadcasting(true)
+    try {
+      await api.post('/messages/broadcast', { content: text }, { headers: admH() })
+      setBroadcastInput('')
+      if (channel === 'announcements') load('announcements')
+      alert('Broadcast sent to all channels!')
+    } catch { alert('Failed to send broadcast') }
+    setBroadcasting(false)
+  }
+
+  const CHANNELS_LIST = [
+    { id: 'general', icon: Hash, label: 'General' },
+    { id: 'announcements', icon: Megaphone, label: 'Announcements' },
+    { id: 'direct', icon: AtSign, label: 'Direct Messages' },
+  ]
+
+  return (
+    <div className="space-y-6">
+      <div>
+        <h2 className="text-lg font-bold text-white">Team Messaging</h2>
+        <p className="text-xs text-slate-500 mt-0.5">Send messages and announcements to the team</p>
+      </div>
+
+      {/* Broadcast Banner */}
+      <div className="bg-amber-500/10 border border-amber-500/20 rounded-xl p-5">
+        <div className="flex items-center gap-2 mb-3">
+          <Megaphone className="w-4 h-4 text-amber-400" />
+          <p className="text-sm font-semibold text-amber-300">Broadcast Announcement</p>
+          <span className="text-[10px] bg-amber-500/20 text-amber-400 px-2 py-0.5 rounded-full">All Channels</span>
+        </div>
+        <div className="flex gap-2">
+          <input value={broadcastInput} onChange={e => setBroadcastInput(e.target.value)}
+            onKeyDown={e => e.key === 'Enter' && broadcast()}
+            placeholder="Type important announcement to all team members..."
+            className="flex-1 px-3 py-2.5 bg-[#0d1426] border border-white/[0.08] rounded-lg text-sm text-white placeholder-slate-600 focus:outline-none focus:border-amber-500/40 transition-all" />
+          <button onClick={broadcast} disabled={!broadcastInput.trim() || broadcasting}
+            className="flex items-center gap-1.5 px-4 py-2.5 bg-amber-600/80 hover:bg-amber-500 disabled:opacity-40 rounded-lg text-xs text-white font-medium transition-all">
+            {broadcasting ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Megaphone className="w-3.5 h-3.5" />} Broadcast
+          </button>
+        </div>
+      </div>
+
+      {/* Channel view */}
+      <div className="bg-white/[0.02] border border-white/[0.06] rounded-xl overflow-hidden">
+        {/* Channel tabs */}
+        <div className="flex border-b border-white/[0.06]">
+          {CHANNELS_LIST.map(ch => {
+            const Icon = ch.icon
+            return (
+              <button key={ch.id} onClick={() => setChannel(ch.id)}
+                className={`flex items-center gap-2 px-5 py-3 text-xs font-medium transition-all ${
+                  channel === ch.id ? 'text-white border-b-2 border-indigo-500 bg-indigo-500/5' : 'text-slate-500 hover:text-slate-300'
+                }`}>
+                <Icon className="w-3.5 h-3.5" /> {ch.label}
+              </button>
+            )
+          })}
+        </div>
+
+        {/* Messages */}
+        <div className="h-80 overflow-y-auto p-4 space-y-3">
+          {loading ? (
+            <div className="flex justify-center py-8"><RefreshCw className="w-4 h-4 text-slate-500 animate-spin" /></div>
+          ) : messages.length === 0 ? (
+            <div className="flex flex-col items-center justify-center h-full gap-2">
+              <MessageSquare className="w-8 h-8 text-slate-700" />
+              <p className="text-xs text-slate-500">No messages in #{channel}</p>
+            </div>
+          ) : (
+            messages.map(msg => (
+              <div key={msg.id} className="flex gap-2.5 items-start">
+                <div className="w-7 h-7 rounded-lg bg-indigo-500/20 flex items-center justify-center flex-shrink-0 text-xs font-bold text-indigo-300">
+                  {(msg.sender_name || '?')[0].toUpperCase()}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-baseline gap-2">
+                    <span className="text-xs font-semibold text-slate-300">{msg.sender_name || 'Unknown'}</span>
+                    <span className="text-[10px] text-slate-600">{new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                  </div>
+                  <p className="text-xs text-slate-400 mt-0.5 leading-relaxed">{msg.content}</p>
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+
+        {/* Send input */}
+        <div className="p-3 border-t border-white/[0.06] bg-white/[0.01]">
+          <div className="flex gap-2">
+            <input value={input} onChange={e => setInput(e.target.value)}
+              onKeyDown={e => e.key === 'Enter' && send()}
+              placeholder={`Send message to #${channel}…`}
+              className="flex-1 px-3 py-2 bg-white/[0.04] border border-white/[0.08] rounded-lg text-sm text-white placeholder-slate-600 focus:outline-none focus:border-indigo-500/40 transition-all" />
+            <button onClick={send} disabled={!input.trim() || sending}
+              className="w-9 h-9 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 rounded-lg flex items-center justify-center transition-all">
+              {sending ? <RefreshCw className="w-3.5 h-3.5 text-white animate-spin" /> : <Send className="w-3.5 h-3.5 text-white" />}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ─── TABS config ───────────────────────────────────────────────────────────────
 const TABS = [
-  { id: 'overview',    label: 'Overview',      icon: Activity,       section: null },
-  { id: 'users',       label: 'Users',          icon: Users,          section: UsersSection },
-  { id: 'risks',       label: 'Risk Register',  icon: AlertTriangle,  section: RisksSection },
-  { id: 'assessments', label: 'Assessments',    icon: ClipboardList,  section: AssessmentsSection },
-  { id: 'heatmap',     label: 'Heatmap',        icon: BarChart3,      section: HeatmapSection },
-  { id: 'reports',     label: 'Reports',        icon: FileText,       section: ReportsSection },
-  { id: 'templates',   label: 'Templates',      icon: Layers,         section: TemplatesSection },
-  { id: 'experts',     label: 'Experts',        icon: Star,           section: ExpertsSection },
+  { id: 'overview',    label: 'Overview',       icon: Activity,       section: null },
+  { id: 'users',       label: 'Users',           icon: Users,          section: UsersSection },
+  { id: 'risks',       label: 'Risk Register',   icon: AlertTriangle,  section: RisksSection },
+  { id: 'assessments', label: 'Assessments',     icon: ClipboardList,  section: AssessmentsSection },
+  { id: 'heatmap',     label: 'Heatmap',         icon: BarChart3,      section: HeatmapSection },
+  { id: 'meetings',    label: 'Meetings',         icon: Video,          section: MeetingsSection },
+  { id: 'messages',    label: 'Messaging',        icon: MessageSquare,  section: MessagesSection },
+  { id: 'reports',     label: 'Reports',          icon: FileText,       section: ReportsSection },
+  { id: 'templates',   label: 'Templates',        icon: Layers,         section: TemplatesSection },
+  { id: 'experts',     label: 'Experts',          icon: Star,           section: ExpertsSection },
 ]
 
 // ─── MAIN EXPORT ──────────────────────────────────────────────────────────────

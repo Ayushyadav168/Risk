@@ -2,9 +2,9 @@ import React from 'react'
 import { NavLink } from 'react-router-dom'
 import {
   LayoutDashboard, Shield, Map, ClipboardList, BarChart3, FileText,
-  Settings, LogOut, TrendingUp, BookTemplate, ChevronLeft, ChevronRight,
-  Users, Activity, Webhook, Building2, UserCheck, Zap, Newspaper,
-  IndianRupee, Target, LineChart, Bot, Layers
+  Settings, LogOut, TrendingUp, ChevronLeft, ChevronRight,
+  Users, Activity, Webhook, Building2, UserCheck, Newspaper,
+  IndianRupee, Target, LineChart, Bot, Layers, MessageSquare, Video
 } from 'lucide-react'
 import useAuthStore from '../store/authStore'
 
@@ -15,10 +15,18 @@ const NAV = [
       { to: '/dashboard',       icon: LayoutDashboard, label: 'Dashboard' },
       { to: '/assessments/new', icon: ClipboardList,   label: 'New Assessment' },
       { to: '/risks',           icon: Shield,           label: 'Risk Register' },
-      { to: '/action-center',   icon: Target,           label: 'Action Center',  badge: 'new' },
-      { to: '/kri',             icon: LineChart,        label: 'KRI Monitor',    badge: 'new' },
+      { to: '/action-center',   icon: Target,           label: 'Action Center' },
+      { to: '/kri',             icon: LineChart,        label: 'KRI Monitor' },
       { to: '/heatmap',         icon: Map,              label: 'Risk Heatmap' },
-      { to: '/ai-copilot',      icon: Bot,              label: 'AI Copilot',     badge: 'new' },
+      { to: '/ai-copilot',      icon: Bot,              label: 'AI Copilot' },
+    ],
+  },
+  {
+    label: 'Collaborate',
+    items: [
+      { to: '/messenger',   icon: MessageSquare, label: 'Messenger',    badge: 'new' },
+      { to: '/video-call',  icon: Video,         label: 'Video Meetings', badge: 'new' },
+      { to: '/team',        icon: Users,         label: 'Team' },
     ],
   },
   {
@@ -36,7 +44,6 @@ const NAV = [
   {
     label: 'Organization',
     items: [
-      { to: '/team',     icon: Users,    label: 'Team' },
       { to: '/webhooks', icon: Webhook,  label: 'Webhooks' },
       { to: '/audit',    icon: Activity, label: 'Audit Log' },
       { to: '/settings', icon: Settings, label: 'Settings' },

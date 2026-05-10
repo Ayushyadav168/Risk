@@ -149,6 +149,24 @@ export const marketAPI = {
   concall: (symbol) => api.get(`/market/companies/${symbol}/concall`),
 }
 
+export const messagingAPI = {
+  list: (params) => api.get('/messages/', { params }),
+  send: (data) => api.post('/messages/', data),
+  unreadCount: () => api.get('/messages/unread-count'),
+  markRead: (id) => api.put(`/messages/${id}/read`),
+  users: () => api.get('/messages/users'),
+  broadcast: (data) => api.post('/messages/broadcast', data),
+}
+
+export const meetingsAPI = {
+  list: (params) => api.get('/meetings/', { params }),
+  create: (data) => api.post('/meetings/', data),
+  get: (id) => api.get(`/meetings/${id}`),
+  update: (id, data) => api.patch(`/meetings/${id}`, data),
+  delete: (id) => api.delete(`/meetings/${id}`),
+  join: (id) => api.post(`/meetings/${id}/join`),
+}
+
 export const expertAPI = {
   list: (params) => api.get('/experts/', { params }),
   create: (data) => api.post('/experts/', data),

@@ -80,7 +80,7 @@ app.mount("/static/reports", StaticFiles(directory="reports"), name="reports")
 # ── Routers ────────────────────────────────────────────────────────────────────
 from api import auth, assessments, risks, ai_service, financial, dashboard, reports
 from api import billing, team, audit, webhooks, companies, experts, news, notifications, market, admin, access_requests
-from api import ai_copilot
+from api import ai_copilot, messaging, meetings
 
 app.include_router(auth.router,        prefix="/api/auth",        tags=["Authentication"])
 app.include_router(assessments.router, prefix="/api/assessments", tags=["Assessments"])
@@ -101,6 +101,8 @@ app.include_router(market.router,        prefix="/api/market",        tags=["Ind
 app.include_router(admin.router,         prefix="/api/admin",          tags=["Admin Panel"])
 app.include_router(access_requests.router, prefix="/api/access",       tags=["Access Requests"])
 app.include_router(ai_copilot.router,      prefix="/api/ai",            tags=["AI Copilot"])
+app.include_router(messaging.router,       prefix="/api/messages",      tags=["Messaging"])
+app.include_router(meetings.router,        prefix="/api/meetings",      tags=["Meetings"])
 
 @app.get("/api/templates")
 def get_templates():
@@ -117,11 +119,29 @@ def get_templates():
 
 @app.get("/")
 def root():
-    return {"message": "RiskIQ Platform API", "version": "2.0.0", "docs": "/docs"}
+    return {"message": "RiskIQ Platform API", "version": "2.1.0", "docs": "/docs"}
 
 @app.get("/health")
 def health():
-    return {"status": "healthy", "version": "2.0.0"}
+    try:
+        db = SessionLocal()
+        user_count = db.query(models.User).count()
+        db.close()
+        db_status = "ok"
+    except Exception as e:
+        user_count = 0
+        db_status = str(e)[:100]
+    return {"status": "healthy", "version": "2.1.0", "db": db_status, "users": user_count}
+
+@app.post("/api/admin/force-seed")
+def force_seed():
+    """Force re-run the database seed (for recovery after cold deploys)."""
+    try:
+        seed_database()
+        seed_experts()
+        return {"status": "seeded"}
+    except Exception as e:
+        return {"status": "error", "detail": str(e)}
 
 # ── Database Seeding ───────────────────────────────────────────────────────────
 def seed_database():

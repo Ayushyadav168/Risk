@@ -394,3 +394,42 @@ class NSEListing(Base):
     # Metadata
     fetched_at     = Column(DateTime, nullable=True)   # when Screener was scraped
     synced_at      = Column(DateTime, server_default=func.now())
+
+# ── Internal Messaging ────────────────────────────────────────────────────────
+class Message(Base):
+    __tablename__ = "messages"
+    id            = Column(Integer, primary_key=True, index=True)
+    sender_id     = Column(Integer, ForeignKey("users.id"), nullable=False)
+    receiver_id   = Column(Integer, ForeignKey("users.id"), nullable=True)   # None = broadcast
+    channel       = Column(String(50), default="general")  # general | announcements | direct
+    content       = Column(Text, nullable=False)
+    is_read       = Column(Boolean, default=False)
+    created_at    = Column(DateTime(timezone=True), server_default=func.now())
+    sender        = relationship("User", foreign_keys=[sender_id])
+    receiver      = relationship("User", foreign_keys=[receiver_id])
+
+# ── Meetings ──────────────────────────────────────────────────────────────────
+class Meeting(Base):
+    __tablename__ = "meetings"
+    id            = Column(Integer, primary_key=True, index=True)
+    title         = Column(String(255), nullable=False)
+    description   = Column(Text, nullable=True)
+    scheduled_at  = Column(DateTime(timezone=True), nullable=False)
+    duration_min  = Column(Integer, default=30)
+    room_id       = Column(String(100), nullable=False)   # Jitsi room ID
+    created_by_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    organization_id = Column(Integer, ForeignKey("organizations.id"), nullable=True)
+    status        = Column(String(20), default="scheduled")  # scheduled | live | ended
+    created_at    = Column(DateTime(timezone=True), server_default=func.now())
+    creator       = relationship("User", foreign_keys=[created_by_id])
+    participants  = relationship("MeetingParticipant", back_populates="meeting", cascade="all, delete-orphan")
+
+class MeetingParticipant(Base):
+    __tablename__ = "meeting_participants"
+    id         = Column(Integer, primary_key=True, index=True)
+    meeting_id = Column(Integer, ForeignKey("meetings.id"), nullable=False)
+    user_id    = Column(Integer, ForeignKey("users.id"), nullable=True)
+    email      = Column(String(255), nullable=True)
+    joined_at  = Column(DateTime(timezone=True), nullable=True)
+    meeting    = relationship("Meeting", back_populates="participants")
+    user       = relationship("User", foreign_keys=[user_id])
